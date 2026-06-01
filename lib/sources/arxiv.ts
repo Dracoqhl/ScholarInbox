@@ -1,0 +1,99 @@
+import type { PaperInput } from "@/lib/papers/types";
+import type { PaperSourceFetchOptions } from "@/lib/sources/types";
+
+const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+
+export function buildArxivQueryUrl(options: PaperSourceFetchOptions): URL {
+  const url = new URL(ARXIV_API_URL);
+  const categoryQuery = options.categories.length
+    ? `(${options.categories.map((category) => `cat:${category}`).join(" OR ")})`
+    : "all:*";
+  const dateQuery = `submittedDate:[${toArxivDate(options.dateFrom, "0000")} TO ${toArxivDate(options.dateTo, "2359")}]`;
+  url.searchParams.set("search_query", `${categoryQuery} AND ${dateQuery}`);
+  url.searchParams.set("start", "0");
+  url.searchParams.set("max_results", String(options.maxResults ?? 100));
+  url.searchParams.set("sortBy", "submittedDate");
+  url.searchParams.set("sortOrder", "descending");
+  return url;
+}
+
+export async function fetchArxivPapers(options: PaperSourceFetchOptions): Promise<PaperInput[]> {
+  const response = await fetch(buildArxivQueryUrl(options), {
+    headers: {
+      "User-Agent": "ScholarInbox/0.1 (personal research paper inbox)"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`arXiv request failed with ${response.status}`);
+  }
+
+  return parseArxivFeed(await response.text());
+}
+
+export function parseArxivFeed(xml: string): PaperInput[] {
+  return extractBlocks(xml, "entry").map((entry) => {
+    const rawId = normalizeWhitespace(extractTag(entry, "id"));
+    const sourceId = normalizeArxivId(rawId);
+    const categories = extractCategoryTerms(entry);
+    const primaryCategory = extractPrimaryCategory(entry) ?? categories[0] ?? "";
+    return {
+      source: "arxiv",
+      sourceId,
+      title: normalizeWhitespace(extractTag(entry, "title")),
+      abstract: normalizeWhitespace(extractTag(entry, "summary")),
+      authors: extractBlocks(entry, "author").map((author) => normalizeWhitespace(extractTag(author, "name"))).filter(Boolean),
+      categories,
+      primaryCategory,
+      publishedAt: toIsoDate(extractTag(entry, "published")),
+      updatedAt: toIsoDate(extractTag(entry, "updated")),
+      sourceUrl: `https://arxiv.org/abs/${sourceId}`,
+      pdfUrl: `https://arxiv.org/pdf/${sourceId}`
+    };
+  });
+}
+
+function toArxivDate(date: string, time: string): string {
+  return `${date.replaceAll("-", "")}${time}`;
+}
+
+function toIsoDate(value: string): string {
+  return new Date(normalizeWhitespace(value)).toISOString();
+}
+
+function normalizeArxivId(value: string): string {
+  const lastSegment = value.split("/").filter(Boolean).at(-1) ?? value;
+  return lastSegment.replace(/v\d+$/i, "");
+}
+
+function extractBlocks(xml: string, tagName: string): string[] {
+  const pattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tagName}>`, "gi");
+  return [...xml.matchAll(pattern)].map((match) => match[1]);
+}
+
+function extractTag(xml: string, tagName: string): string {
+  const match = xml.match(new RegExp(`<${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tagName}>`, "i"));
+  return match?.[1] ? decodeXml(match[1]) : "";
+}
+
+function extractCategoryTerms(xml: string): string[] {
+  return [...xml.matchAll(/<category\b[^>]*\bterm=["']([^"']+)["'][^>]*\/?>/gi)].map((match) => decodeXml(match[1]));
+}
+
+function extractPrimaryCategory(xml: string): string | null {
+  const match = xml.match(/<arxiv:primary_category\b[^>]*\bterm=["']([^"']+)["'][^>]*\/?>/i);
+  return match?.[1] ? decodeXml(match[1]) : null;
+}
+
+function normalizeWhitespace(value: string): string {
+  return decodeXml(value).replace(/\s+/g, " ").trim();
+}
+
+function decodeXml(value: string): string {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'");
+}
