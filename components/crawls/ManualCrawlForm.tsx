@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { getDefaultManualCrawlDateRange } from "@/lib/crawls/date-range";
+
 type CrawlRunResponse = {
   run: {
     status: string;
@@ -13,9 +15,9 @@ type CrawlRunResponse = {
 };
 
 export function ManualCrawlForm() {
-  const today = new Date().toISOString().slice(0, 10);
-  const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(today);
+  const defaultDateRange = getDefaultManualCrawlDateRange();
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom);
+  const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
   const [categories, setCategories] = useState("cs.CL, cs.AI, cs.LG");
   const [result, setResult] = useState<CrawlRunResponse["run"] | null>(null);
   const [error, setError] = useState<string | null>(null);

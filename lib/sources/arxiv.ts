@@ -2,6 +2,19 @@ import type { PaperInput } from "@/lib/papers/types";
 import type { PaperSourceFetchOptions } from "@/lib/sources/types";
 
 const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+const ARXIV_REQUEST_DELAY_MS = 3000;
+const ARXIV_MAX_RETRIES = 2;
+const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+type FetchLike = typeof fetch;
+type ArxivFetchRuntime = {
+  fetcher?: FetchLike;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
+
+let lastArxivRequestAt: number | null = null;
+let arxivRequestQueue: Promise<void> = Promise.resolve();
 
 export function buildArxivQueryUrl(options: PaperSourceFetchOptions): URL {
   const url = new URL(ARXIV_API_URL);
@@ -17,18 +30,19 @@ export function buildArxivQueryUrl(options: PaperSourceFetchOptions): URL {
   return url;
 }
 
-export async function fetchArxivPapers(options: PaperSourceFetchOptions): Promise<PaperInput[]> {
-  const response = await fetch(buildArxivQueryUrl(options), {
-    headers: {
-      "User-Agent": "ScholarInbox/0.1 (personal research paper inbox)"
-    }
-  });
+export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime = {}): Promise<PaperInput[]> {
+  const response = await fetchArxivWithRetries(buildArxivQueryUrl(options), runtime);
 
   if (!response.ok) {
     throw new Error(`arXiv request failed with ${response.status}`);
   }
 
   return parseArxivFeed(await response.text());
+}
+
+export function resetArxivRateLimitForTests(): void {
+  lastArxivRequestAt = null;
+  arxivRequestQueue = Promise.resolve();
 }
 
 export function parseArxivFeed(xml: string): PaperInput[] {
@@ -96,4 +110,62 @@ function decodeXml(value: string): string {
     .replaceAll("&amp;", "&")
     .replaceAll("&quot;", '"')
     .replaceAll("&apos;", "'");
+}
+
+async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt <= ARXIV_MAX_RETRIES; attempt += 1) {
+    const response = await runArxivRequestWithRateLimit(() => requestArxiv(url, runtime), runtime);
+    if (response.ok || !TRANSIENT_STATUS_CODES.has(response.status) || attempt === ARXIV_MAX_RETRIES) {
+      return response;
+    }
+    lastResponse = response;
+  }
+
+  return lastResponse ?? requestArxiv(url, runtime);
+}
+
+async function runArxivRequestWithRateLimit<T>(operation: () => Promise<T>, runtime: ArxivFetchRuntime): Promise<T> {
+  const previous = arxivRequestQueue;
+  let release: () => void = () => {};
+  arxivRequestQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+  try {
+    await waitForArxivRequestSlot(runtime);
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+async function waitForArxivRequestSlot(runtime: ArxivFetchRuntime): Promise<void> {
+  const now = runtime.now ?? Date.now;
+  const sleep = runtime.sleep ?? defaultSleep;
+  const currentTime = now();
+
+  if (lastArxivRequestAt !== null) {
+    const waitMs = lastArxivRequestAt + ARXIV_REQUEST_DELAY_MS - currentTime;
+    if (waitMs > 0) {
+      await sleep(waitMs);
+    }
+  }
+
+  lastArxivRequestAt = now();
+}
+
+function requestArxiv(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
+  const fetcher = runtime.fetcher ?? fetch;
+  return fetcher(url, {
+    headers: {
+      "User-Agent": "ScholarInbox/0.1 (personal research paper inbox; https://github.com/Dracoqhl/ScholarInbox)"
+    }
+  });
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

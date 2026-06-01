@@ -198,14 +198,14 @@ The current MVP includes:
 - `lib/db/schema.ts`: schema creation for papers, paper states, crawl runs, and app settings.
 - `lib/db/app-database.ts`: app database initialization helper.
 - `lib/papers/repository.ts`: paper upsert, deduplication, list, detail, favorite, and status persistence.
-- `lib/sources/arxiv.ts`: arXiv query URL builder, fetcher, and Atom parser.
+- `lib/sources/arxiv.ts`: arXiv query URL builder, fetcher, Atom parser, single-connection 3-second request throttle, and transient 429/5xx retry handling.
 - `lib/crawls/crawler.ts`: manual date-range arXiv crawl orchestration.
 - `lib/crawls/repository.ts`: crawl run persistence.
 - `lib/settings/repository.ts`: persisted categories, daily crawl time, and interest profile text.
 - `lib/ai/client.ts`: server-only OpenAI-compatible Responses API connection test helper.
 - `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, settings, and AI API testing.
 - `components/papers/**`: paper list, detail view, status select, and favorite button.
-- `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI.
+- `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
 - `components/settings/SettingsForm.tsx`: settings UI.
 - `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use.
 

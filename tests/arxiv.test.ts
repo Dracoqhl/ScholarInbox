@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { buildArxivQueryUrl, parseArxivFeed } from "../lib/sources/arxiv";
+import { buildArxivQueryUrl, fetchArxivPapers, parseArxivFeed, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
 
 describe("arXiv source", () => {
   it("parses Atom entries into normalized paper inputs", () => {
@@ -54,4 +54,87 @@ describe("arXiv source", () => {
     expect(decodeURIComponent(url.searchParams.get("search_query") ?? "")).toContain("(cat:cs.CL OR cat:cs.AI)");
     expect(url.searchParams.get("max_results")).toBe("50");
   });
+
+  it("waits three seconds between arXiv API requests", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const sleeps: number[] = [];
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse(sampleFeed()));
+
+    await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+    await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([3000]);
+  });
+
+  it("retries transient arXiv failures after the request delay", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const sleeps: number[] = [];
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(makeArxivResponse("busy", { ok: false, status: 503 }))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed()));
+
+    const papers = await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([3000]);
+    expect(papers).toHaveLength(1);
+  });
 });
+
+function makeFetchOptions() {
+  return {
+    categories: ["cs.CL"],
+    dateFrom: "2026-05-27",
+    dateTo: "2026-06-02",
+    maxResults: 1
+  };
+}
+
+function makeArxivResponse(body: string, overrides: { ok?: boolean; status?: number } = {}) {
+  return {
+    ok: overrides.ok ?? true,
+    status: overrides.status ?? 200,
+    text: async () => body
+  } as Response;
+}
+
+function sampleFeed(): string {
+  return `
+    <feed>
+      <entry>
+        <id>http://arxiv.org/abs/2605.31584v1</id>
+        <updated>2026-05-29T17:51:40Z</updated>
+        <published>2026-05-29T17:51:40Z</published>
+        <title>LongTraceRL</title>
+        <summary>Learning long-context reasoning.</summary>
+        <author><name>Ada Lovelace</name></author>
+        <arxiv:primary_category term="cs.CL"/>
+        <category term="cs.CL"/>
+      </entry>
+    </feed>
+  `;
+}
