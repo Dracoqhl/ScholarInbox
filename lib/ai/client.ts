@@ -32,7 +32,12 @@ export async function testAiConnection(config: AiConnectionConfig, fetcher: Fetc
       },
       body: JSON.stringify({
         model,
-        input: "Reply with ok.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Reply with ok." }]
+          }
+        ],
         max_output_tokens: 4
       })
     });

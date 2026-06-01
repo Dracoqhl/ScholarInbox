@@ -51,7 +51,12 @@ describe("AI client", () => {
     const request = fetcher.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual({
       model: "test-model",
-      input: "Reply with ok.",
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "Reply with ok." }]
+        }
+      ],
       max_output_tokens: 4
     });
   });
