@@ -11,6 +11,8 @@ const querySchema = z.object({
   query: z.string().optional()
 });
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const query = querySchema.parse(Object.fromEntries(request.nextUrl.searchParams));

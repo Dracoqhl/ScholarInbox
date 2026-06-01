@@ -11,6 +11,8 @@ const settingsSchema = z.object({
   interestProfile: z.string().min(1)
 });
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const settings = await createSettingsRepository(getAppDatabase()).get();

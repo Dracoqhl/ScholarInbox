@@ -9,6 +9,8 @@ const bodySchema = z.object({
   isFavorite: z.boolean()
 });
 
+export const dynamic = "force-dynamic";
+
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     const body = bodySchema.parse(await request.json());

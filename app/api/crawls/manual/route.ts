@@ -12,6 +12,8 @@ const bodySchema = z.object({
   categories: z.array(z.string().min(1)).optional()
 });
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const body = bodySchema.parse(await request.json());
