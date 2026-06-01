@@ -47,6 +47,7 @@ ScholarInbox/
     crawls/page.tsx
     settings/page.tsx
     api/
+      ai/test/route.ts
       papers/route.ts
       papers/[id]/route.ts
       papers/[id]/favorite/route.ts
@@ -201,7 +202,8 @@ The current MVP includes:
 - `lib/crawls/crawler.ts`: manual date-range arXiv crawl orchestration.
 - `lib/crawls/repository.ts`: crawl run persistence.
 - `lib/settings/repository.ts`: persisted categories, daily crawl time, and interest profile text.
-- `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, and settings.
+- `lib/ai/client.ts`: server-only OpenAI-compatible API connection test helper.
+- `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, settings, and AI API testing.
 - `components/papers/**`: paper list, detail view, status select, and favorite button.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI.
 - `components/settings/SettingsForm.tsx`: settings UI.
