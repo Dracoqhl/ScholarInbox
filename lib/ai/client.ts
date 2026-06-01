@@ -38,7 +38,8 @@ export async function testAiConnection(config: AiConnectionConfig, fetcher: Fetc
             content: [{ type: "input_text", text: "Reply with ok." }]
           }
         ],
-        max_output_tokens: 4
+        max_output_tokens: 4,
+        stream: true
       })
     });
 
