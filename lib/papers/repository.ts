@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
-import type { Paper, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
+import type { Paper, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
 
 export function createPaperRepository(db: SqliteDatabase) {
   return new PaperRepository(db);
@@ -78,6 +78,11 @@ class PaperRepository {
       params.status = filters.status;
     }
 
+    if (filters.matched !== undefined) {
+      where.push("papers.filter_matched = @matched");
+      params.matched = filters.matched ? 1 : 0;
+    }
+
     if (filters.query?.trim()) {
       where.push("(papers.title LIKE @query OR papers.abstract LIKE @query)");
       params.query = `%${filters.query.trim()}%`;
@@ -88,6 +93,62 @@ class PaperRepository {
       .all<PaperRow>(params);
 
     return rows.map(mapPaper);
+  }
+
+  async getCurrentFilterResult(source: string, sourceId: string, profileHash: string): Promise<PaperFilterResult | null> {
+    const row = this.db
+      .prepare(
+        `SELECT filter_matched, filter_score, filter_method, filter_profile_hash, filter_checked_at, filter_error
+         FROM papers
+         WHERE source = @source
+           AND source_id = @sourceId
+           AND filter_profile_hash = @profileHash
+           AND filter_matched IS NOT NULL
+           AND filter_method IS NOT NULL
+           AND filter_checked_at IS NOT NULL`
+      )
+      .get<Pick<PaperRow, "filter_matched" | "filter_score" | "filter_method" | "filter_profile_hash" | "filter_checked_at" | "filter_error">>({
+        source,
+        sourceId,
+        profileHash
+      });
+
+    if (!row || row.filter_matched === null || !row.filter_method || !row.filter_profile_hash || !row.filter_checked_at) return null;
+
+    return {
+      matched: row.filter_matched === 1,
+      score: row.filter_score,
+      method: row.filter_method,
+      profileHash: row.filter_profile_hash,
+      checkedAt: row.filter_checked_at,
+      error: row.filter_error
+    };
+  }
+
+  async setFilterResult(id: string, result: PaperFilterResult): Promise<Paper | null> {
+    this.db
+      .prepare(
+        `UPDATE papers
+         SET filter_matched = @filterMatched,
+             filter_score = @filterScore,
+             filter_method = @filterMethod,
+             filter_profile_hash = @filterProfileHash,
+             filter_checked_at = @filterCheckedAt,
+             filter_error = @filterError,
+             updated_record_at = @updatedRecordAt
+         WHERE id = @id`
+      )
+      .run({
+        id,
+        filterMatched: result.matched ? 1 : 0,
+        filterScore: result.score,
+        filterMethod: result.method,
+        filterProfileHash: result.profileHash,
+        filterCheckedAt: result.checkedAt,
+        filterError: result.error,
+        updatedRecordAt: new Date().toISOString()
+      });
+    return this.get(id);
   }
 
   async setFavorite(id: string, isFavorite: boolean): Promise<Paper | null> {
@@ -149,6 +210,12 @@ function mapPaper(row: PaperRow): Paper {
     pdfUrl: row.pdf_url,
     status: row.status ?? "new",
     isFavorite: row.is_favorite === 1,
+    filterMatched: row.filter_matched === null ? null : row.filter_matched === 1,
+    filterScore: row.filter_score,
+    filterMethod: row.filter_method,
+    filterProfileHash: row.filter_profile_hash,
+    filterCheckedAt: row.filter_checked_at,
+    filterError: row.filter_error,
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
   };

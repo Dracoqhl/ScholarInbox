@@ -84,7 +84,7 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
         <div>
           <h2 className="text-lg font-semibold">{favoriteOnly ? "收藏论文" : "论文库"}</h2>
           <p className="mt-1 text-sm text-muted">
-            {favoriteOnly ? "回顾你标记过的高价值工作。" : "扫描已抓取论文，更新状态并收藏值得回看的工作。"}
+            {favoriteOnly ? "回顾你标记过的高价值工作。" : "扫描匹配兴趣方向的论文，更新状态并收藏值得回看的工作。"}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -120,7 +120,7 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
       ) : papers.length === 0 ? (
         <div className="rounded-md border border-line bg-surface p-6">
           <h3 className="font-medium">还没有可显示的论文</h3>
-          <p className="mt-2 text-sm text-muted">先到抓取页面选择日期范围运行一次 arXiv 抓取。</p>
+          <p className="mt-2 text-sm text-muted">先确认 AI 配置可用，再到抓取页面运行一次 arXiv 抓取。</p>
         </div>
       ) : (
         <div className="space-y-3">

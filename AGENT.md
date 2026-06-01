@@ -22,16 +22,17 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Interest filtering uses paper title and abstract.
 - Interest filtering does not need to generate or store natural-language reasons.
 - Filter results should store `matched` and may store an optional `score`.
+- Interest filtering uses local high-recall prefiltering to skip clearly unrelated papers, then batched AI filtering as the final positive-match decision.
+- If AI configuration is unavailable or filtering fails, crawl filtering should fail visibly rather than silently falling back to non-AI matching.
 - The user currently cares about large language model post-training, model reasoning, test-time scaling, RLHF/DPO/RLAIF, agentic RL, tool use, and multi-agent reasoning.
 - Add a paper favorite feature so high-value papers can be revisited later.
 - Favorite state is independent from reading status.
 - Early parsing/testing should fully parse only one selected paper. Do not batch-parse papers during the initial debug phase.
 - API keys and secrets must stay server-side and must not be committed.
-- Current MVP can manually crawl arXiv date ranges, store and deduplicate papers in SQLite, list papers, update reading status, save favorites, and edit basic settings.
+- Current MVP can manually crawl arXiv date ranges, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
 - Manual arXiv crawls default to the most recent 7 UTC dates because same-day `submittedDate` queries can return zero before arXiv publishes the latest batch.
 - arXiv legacy API requests must stay single-connection with at least 3 seconds between requests; the source fetcher includes in-process throttling and limited 429/5xx retries.
 - Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/responses` call.
-- Current MVP stores the interest profile text but does not yet execute LLM filtering.
 - Current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.
 
 ## Documentation Rules

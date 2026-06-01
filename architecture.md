@@ -154,7 +154,9 @@ Owns interest profile matching.
 - Filtering uses paper title and abstract.
 - Results store whether a paper matched and optionally a score.
 - Results do not store natural-language reasons.
-- LLM and keyword fallback implementations should share a narrow interface.
+- Local keyword/category prefiltering only removes clearly unrelated papers before model calls.
+- Batch LLM filtering is the final positive-match decision for papers that pass prefiltering.
+- The papers API defaults to matched papers, while favorite queries can still return saved favorites regardless of match state.
 
 ### `lib/analysis/`
 
@@ -176,7 +178,7 @@ Owns persisted non-secret settings.
 
 Expected core entities:
 
-- `papers`: normalized paper metadata.
+- `papers`: normalized paper metadata plus persisted interest-filter result fields.
 - `crawl_runs`: each manual or scheduled crawl.
 - `filter_profiles`: saved research-interest descriptions.
 - `filter_results`: per-paper match result for a profile.
@@ -203,10 +205,11 @@ The current MVP includes:
 - `lib/crawls/repository.ts`: crawl run persistence.
 - `lib/settings/repository.ts`: persisted categories, daily crawl time, and interest profile text.
 - `lib/ai/client.ts`: server-only OpenAI-compatible Responses API connection test helper.
+- `lib/filtering/**`: local prefiltering, interest profile hashing, batched Responses API filtering, and streaming SSE text parsing.
 - `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, settings, and AI API testing.
 - `components/papers/**`: paper list, detail view, status select, and favorite button.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
 - `components/settings/SettingsForm.tsx`: settings UI.
 - `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use.
 
-The current MVP does not yet implement LLM-based interest filtering, daily scheduled crawl, or single-paper PDF analysis.
+The current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.

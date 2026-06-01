@@ -62,6 +62,58 @@ describe("paper repository", () => {
 
     expect(favorites.map((paper) => paper.title)).toEqual(["Favorite"]);
   });
+
+  it("lists only matched papers when requested", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const matched = await repository.upsert(makePaperInput({ sourceId: "2401.00005", title: "Matched" }));
+    const unmatched = await repository.upsert(makePaperInput({ sourceId: "2401.00006", title: "Unmatched" }));
+
+    await repository.setFilterResult(matched.paper.id, {
+      matched: true,
+      score: 0.91,
+      method: "llm",
+      profileHash: "profile-a",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+    await repository.setFilterResult(unmatched.paper.id, {
+      matched: false,
+      score: 0.08,
+      method: "prefilter",
+      profileHash: "profile-a",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+
+    const papers = await repository.list({ matched: true });
+
+    expect(papers.map((paper) => paper.title)).toEqual(["Matched"]);
+    expect(papers[0]).toMatchObject({
+      filterMatched: true,
+      filterScore: 0.91,
+      filterMethod: "llm",
+      filterProfileHash: "profile-a"
+    });
+  });
+
+  it("finds an existing filter result for the current interest profile", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00007" }));
+    await repository.setFilterResult(paper.id, {
+      matched: true,
+      score: 0.8,
+      method: "llm",
+      profileHash: "profile-a",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+
+    const cached = await repository.getCurrentFilterResult("arxiv", "2401.00007", "profile-a");
+    const stale = await repository.getCurrentFilterResult("arxiv", "2401.00007", "profile-b");
+
+    expect(cached).toMatchObject({ matched: true, profileHash: "profile-a" });
+    expect(stale).toBeNull();
+  });
 });
 
 function makePaperInput(overrides: Partial<PaperInput> = {}): PaperInput {

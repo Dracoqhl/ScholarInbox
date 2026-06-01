@@ -7,6 +7,7 @@ import { handleRouteError } from "@/lib/validation/http";
 
 const querySchema = z.object({
   favorite: z.enum(["true", "false"]).optional(),
+  matched: z.enum(["true", "false", "all"]).optional(),
   status: z.enum(["new", "interested", "reading", "done", "archived"]).optional(),
   query: z.string().optional()
 });
@@ -16,8 +17,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const query = querySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+    const favorite = query.favorite ? query.favorite === "true" : undefined;
     const papers = await createPaperRepository(getAppDatabase()).list({
-      favorite: query.favorite ? query.favorite === "true" : undefined,
+      favorite,
+      matched: getMatchedFilter(query.matched, favorite),
       status: query.status,
       query: query.query
     });
@@ -25,4 +28,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function getMatchedFilter(value: "true" | "false" | "all" | undefined, favorite: boolean | undefined): boolean | undefined {
+  if (value === "all") return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return favorite ? undefined : true;
 }

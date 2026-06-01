@@ -33,7 +33,16 @@ describe("crawl service", () => {
       categories: ["cs.CL"],
       dateFrom: "2024-01-01",
       dateTo: "2024-01-02",
-      fetchPapers: async () => [makePaperInput("2401.00001"), makePaperInput("2401.00002")]
+      fetchPapers: async () => [makePaperInput("2401.00001"), makePaperInput("2401.00002")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+        sourceId: paper.sourceId,
+        matched: true,
+        score: 0.9,
+        method: "llm",
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      }))
     });
 
     const papers = await createPaperRepository(db).list({});
@@ -58,12 +67,47 @@ describe("crawl service", () => {
   it("counts duplicates when the same range is crawled twice", async () => {
     const db = getDatabase(databasePath);
     const fetchPapers = async () => [makePaperInput("2401.00003")];
+    const filterPapers = async (papers: PaperInput[]) => papers.map((paper) => ({
+      sourceId: paper.sourceId,
+      matched: true,
+      score: 0.9,
+      method: "llm" as const,
+      profileHash: "test-profile",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    }));
 
-    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers });
-    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers });
+    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers });
+    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers });
 
     expect(second.insertedCount).toBe(0);
     expect(second.duplicateCount).toBe(1);
+  });
+
+  it("stores unmatched papers but hides them from the default paper list", async () => {
+    const db = getDatabase(databasePath);
+
+    await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => [makePaperInput("2401.00004"), makePaperInput("2401.00005")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+        sourceId: paper.sourceId,
+        matched: paper.sourceId === "2401.00004",
+        score: paper.sourceId === "2401.00004" ? 0.88 : 0.12,
+        method: "llm",
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      }))
+    });
+
+    const repository = createPaperRepository(db);
+
+    expect(await repository.list({})).toHaveLength(2);
+    expect((await repository.list({ matched: true })).map((paper) => paper.sourceId)).toEqual(["2401.00004"]);
   });
 });
 

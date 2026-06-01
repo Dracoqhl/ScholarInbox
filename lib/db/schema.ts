@@ -53,4 +53,25 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_paper_states_favorite ON paper_states(is_favorite);
     CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at ON crawl_runs(started_at);
   `);
+  ensurePaperFilterColumns(db);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
+    CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
+  `);
+}
+
+function ensurePaperFilterColumns(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(papers);").all<{ name: string }>().map((column) => column.name));
+  const missingColumns = [
+    ["filter_matched", "INTEGER"],
+    ["filter_score", "REAL"],
+    ["filter_method", "TEXT"],
+    ["filter_profile_hash", "TEXT"],
+    ["filter_checked_at", "TEXT"],
+    ["filter_error", "TEXT"]
+  ].filter(([name]) => !columns.has(name));
+
+  for (const [name, type] of missingColumns) {
+    db.exec(`ALTER TABLE papers ADD COLUMN ${name} ${type};`);
+  }
 }
