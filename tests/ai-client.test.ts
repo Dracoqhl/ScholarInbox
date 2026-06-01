@@ -20,7 +20,7 @@ describe("AI client", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("sends a minimal chat completion request to an OpenAI-compatible endpoint", async () => {
+  it("sends a minimal Responses API request to an OpenAI-compatible endpoint", async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -38,7 +38,7 @@ describe("AI client", () => {
 
     expect(result).toEqual({ ok: true, status: "ok", message: "API connection succeeded." });
     expect(fetcher).toHaveBeenCalledWith(
-      "https://api.example.com/v1/chat/completions",
+      "https://api.example.com/v1/responses",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -47,6 +47,13 @@ describe("AI client", () => {
         })
       })
     );
+
+    const request = fetcher.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({
+      model: "test-model",
+      input: "Reply with ok.",
+      max_output_tokens: 4
+    });
   });
 
   it("reports provider errors without exposing the API key", async () => {

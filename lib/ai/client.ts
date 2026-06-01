@@ -24,7 +24,7 @@ export async function testAiConnection(config: AiConnectionConfig, fetcher: Fetc
   }
 
   try {
-    const response = await fetcher(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+    const response = await fetcher(`${baseUrl.replace(/\/+$/, "")}/responses`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -32,9 +32,8 @@ export async function testAiConnection(config: AiConnectionConfig, fetcher: Fetc
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: "Reply with ok." }],
-        temperature: 0,
-        max_tokens: 4
+        input: "Reply with ok.",
+        max_output_tokens: 4
       })
     });
 

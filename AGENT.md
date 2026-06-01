@@ -28,7 +28,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Early parsing/testing should fully parse only one selected paper. Do not batch-parse papers during the initial debug phase.
 - API keys and secrets must stay server-side and must not be committed.
 - Current MVP can manually crawl arXiv date ranges, store and deduplicate papers in SQLite, list papers, update reading status, save favorites, and edit basic settings.
-- Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/chat/completions` call.
+- Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/responses` call.
 - Current MVP stores the interest profile text but does not yet execute LLM filtering.
 - Current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.
 
