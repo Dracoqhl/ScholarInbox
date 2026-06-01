@@ -13,7 +13,9 @@ This file stores maintainer context for future Codex sessions. It is project mem
 
 ## Confirmed Product Decisions
 
-- Default technical stack: Next.js, TypeScript, SQLite, Drizzle ORM, arXiv API, cron-style scheduling, Docker-friendly deployment.
+- Default technical stack: Next.js, TypeScript, SQLite through the system `sqlite3` CLI wrapper, arXiv API, cron-style scheduling, Docker-friendly deployment.
+- Follow `/data/proj/phd-workspace` for the local Next.js, pnpm, Tailwind, Vitest, and SQLite access style.
+- Do not introduce `better-sqlite3`, Drizzle ORM, Prisma, PostgreSQL, MySQL, Redis, or another database service unless the user explicitly asks for it later.
 - Initial paper source: arXiv.
 - Initial arXiv categories: `cs.CL`, `cs.AI`, `cs.LG`, configurable later in the web UI.
 - Support two crawl modes: daily scheduled crawl and manual date-range crawl.
@@ -45,7 +47,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 ## MVP Order
 
 1. Project skeleton and documentation baseline.
-2. SQLite and Drizzle schema.
+2. SQLite schema and CLI-backed database wrapper.
 3. arXiv manual date-range crawl.
 4. Paper storage and deduplication.
 5. Basic paper list UI.
@@ -53,4 +55,3 @@ This file stores maintainer context for future Codex sessions. It is project mem
 7. Interest profile settings and filtering.
 8. Daily scheduled crawl.
 9. Single-paper analysis entry point.
-

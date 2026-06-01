@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+dist
+coverage
+.env
+.env.local
+.env.*.local
+*.sqlite
+*.sqlite3
+data/
+npm-debug.log*
+pnpm-debug.log*
+*.tsbuildinfo

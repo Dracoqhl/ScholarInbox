@@ -12,7 +12,7 @@ The product should not depend on GitHub Actions, GitHub Pages, or a GitHub-cente
 
 - Next.js full-stack app with TypeScript.
 - SQLite for personal-server persistence.
-- Drizzle ORM for schema and typed database access.
+- A small server-only SQLite wrapper around the system `sqlite3` command, matching `/data/proj/phd-workspace`.
 - arXiv API as the first paper source.
 - Cron-style background scheduling for daily crawls.
 - Docker-friendly deployment.
@@ -178,11 +178,10 @@ Later verification should cover:
 ## Initial Delivery Plan
 
 1. Create the project skeleton and documentation baseline.
-2. Add SQLite and Drizzle schema.
+2. Add SQLite schema and the CLI-backed database wrapper.
 3. Implement arXiv client and manual date-range crawl.
 4. Store and list papers.
 5. Add favorite persistence and UI toggle.
 6. Add interest profile settings and filtering.
 7. Add daily scheduled crawl.
 8. Add single-paper analysis entry point.
-

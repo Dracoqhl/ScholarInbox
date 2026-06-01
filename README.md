@@ -31,7 +31,7 @@ ScholarInbox 是一个自托管的个人论文发现与阅读网页应用，目�
 - Next.js
 - TypeScript
 - SQLite
-- Drizzle ORM
+- 系统 `sqlite3` 命令行工具
 - arXiv API
 - Docker 部署
 
@@ -50,4 +50,3 @@ API key、`.env` 文件、本地数据库、日志和构建产物不会提交到
 - `docs/superpowers/specs/2026-06-02-scholar-inbox-design.md`
 
 下一步是根据设计文档创建实施计划，然后开始实现第一版抓取和论文列表流程。
-

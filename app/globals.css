@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0.972 0.006 96;
+  --surface: 0.992 0.004 96;
+  --surface-muted: 0.945 0.008 96;
+  --line: 0.862 0.011 96;
+  --primary: 0.235 0.018 260;
+  --muted: 0.478 0.018 260;
+  --accent: 0.52 0.14 184;
+  --accent-soft: 0.91 0.05 184;
+  --danger: 0.55 0.16 27;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: oklch(var(--background));
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

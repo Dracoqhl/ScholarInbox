@@ -18,7 +18,7 @@ The app owns four main workflows:
 - Next.js App Router for pages and API routes.
 - React and TypeScript for the frontend.
 - SQLite for persistence.
-- Drizzle ORM for schema and typed queries.
+- A small server-only SQLite wrapper around the system `sqlite3` command, following `/data/proj/phd-workspace`.
 - arXiv API as the first paper source.
 - Cron-style server-side scheduling for daily crawls.
 - Docker-compatible deployment.
@@ -64,8 +64,7 @@ ScholarInbox/
   lib/
     db/
       schema.ts
-      client.ts
-      migrations/
+      database.ts
     papers/
       repository.ts
       types.ts
@@ -123,9 +122,11 @@ Owns React UI components.
 
 ### `lib/db/`
 
-Owns database connection, schema, migrations, and low-level query setup.
+Owns database path resolution, CLI-backed SQLite execution, schema creation, and low-level query setup.
 
 - Database files are runtime data and must not be committed.
+- The project uses the system `sqlite3` CLI rather than a native Node SQLite driver.
+- Do not introduce Drizzle, Prisma, `better-sqlite3`, or another database package for the MVP.
 - Schema changes must be reflected in this document when they alter project structure or major data ownership.
 
 ### `lib/sources/`
@@ -190,4 +191,3 @@ Expected core entities:
 ## Current Status
 
 The repository is at the documentation baseline. Application code has not been scaffolded yet.
-

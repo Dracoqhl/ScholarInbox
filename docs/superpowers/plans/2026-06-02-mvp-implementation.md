@@ -6,7 +6,7 @@
 
 **Architecture:** Use a single Next.js App Router application. Server-only modules own arXiv fetching, SQLite access, crawl orchestration, and settings; React components call route handlers and never import database or crawler code directly.
 
-**Tech Stack:** Next.js, React, TypeScript, better-sqlite3, Drizzle ORM, Vitest, Tailwind CSS, arXiv Atom API.
+**Tech Stack:** Next.js, React, TypeScript, SQLite through the system `sqlite3` CLI, Vitest, Tailwind CSS, arXiv Atom API.
 
 ---
 
@@ -26,17 +26,19 @@
 - Create: `app/globals.css`
 
 - [ ] Create the Next.js project files with scripts for `dev`, `build`, `start`, `lint`, and `test`.
-- [ ] Install runtime dependencies: `next`, `react`, `react-dom`, `better-sqlite3`, `drizzle-orm`, `zod`, `lucide-react`.
-- [ ] Install dev dependencies: `typescript`, `tailwindcss`, `postcss`, `autoprefixer`, `eslint`, `eslint-config-next`, `vitest`, `@types/node`, `@types/react`, `@types/react-dom`, `@types/better-sqlite3`.
+- [ ] Use the same package style as `/data/proj/phd-workspace`.
+- [ ] Do not add `better-sqlite3`, Drizzle, Prisma, or any external database service.
+- [ ] Use runtime dependencies: `next`, `react`, `react-dom`, `zod`, `lucide-react`.
+- [ ] Use dev dependencies: `typescript`, `tailwindcss`, `postcss`, `autoprefixer`, `eslint`, `eslint-config-next`, `vitest`, `@types/node`, `@types/react`, `@types/react-dom`.
 - [ ] Add a minimal App Router shell that renders a working page.
-- [ ] Run `pnpm install`.
+- [ ] Run `pnpm install` only when dependencies are missing or `node_modules` needs to match `package.json`.
 - [ ] Run `pnpm build`; expected result: build succeeds.
 
 ### Task 2: Database And Domain Foundation
 
 **Files:**
 - Create: `lib/db/schema.ts`
-- Create: `lib/db/client.ts`
+- Create: `lib/db/database.ts`
 - Create: `lib/db/init.ts`
 - Create: `lib/papers/types.ts`
 - Create: `lib/papers/repository.ts`
@@ -122,4 +124,3 @@
 - [ ] Add start scripts for development and personal-server production.
 - [ ] Run `pnpm lint`, `pnpm test`, and `pnpm build`; expected result: all pass.
 - [ ] Commit and push the MVP branch.
-
