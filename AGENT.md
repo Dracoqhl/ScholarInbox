@@ -6,7 +6,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 
 - Product name: ScholarInbox.
 - Repository: `git@github.com:Dracoqhl/ScholarInbox.git`.
-- Stage: design baseline before implementation.
+- Stage: first testable MVP implementation.
 - Primary user: the repository owner, using the app on a personal server.
 - Product positioning: self-hosted personal paper discovery, filtering, reading, and favorites.
 - The app should not depend on GitHub Actions, GitHub Pages, or a GitHub-centered paper workflow.
@@ -27,6 +27,9 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Favorite state is independent from reading status.
 - Early parsing/testing should fully parse only one selected paper. Do not batch-parse papers during the initial debug phase.
 - API keys and secrets must stay server-side and must not be committed.
+- Current MVP can manually crawl arXiv date ranges, store and deduplicate papers in SQLite, list papers, update reading status, save favorites, and edit basic settings.
+- Current MVP stores the interest profile text but does not yet execute LLM filtering.
+- Current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.
 
 ## Documentation Rules
 
@@ -55,3 +58,10 @@ This file stores maintainer context for future Codex sessions. It is project mem
 7. Interest profile settings and filtering.
 8. Daily scheduled crawl.
 9. Single-paper analysis entry point.
+
+## Runtime Notes
+
+- Use `./scripts/start-dev.sh` for local compiled-run testing. It defaults to `PORT=3120`, `BIND_HOST=127.0.0.1`, and `DATABASE_PATH=$PWD/data/scholar-inbox.sqlite`.
+- Use `./scripts/start.sh` for personal-server access. It defaults to `BIND_HOST=0.0.0.0`.
+- API routes must remain `force-dynamic`; otherwise Next may evaluate database-backed routes at build time.
+- Do not commit `data/`, `.env.local`, `.next/`, or runtime SQLite files.
