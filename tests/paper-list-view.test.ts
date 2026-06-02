@@ -66,6 +66,7 @@ function makePaper(sourceId: string, publishedAt: string, filterScore: number): 
     analysisModel: null,
     analysisCheckedAt: null,
     analysisError: null,
+    keywordTags: [],
     githubUrls: [],
     createdAt: publishedAt,
     updatedRecordAt: publishedAt

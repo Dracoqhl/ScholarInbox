@@ -45,6 +45,7 @@ export type Paper = PaperInput & {
   pdfAnalysisModel: string | null;
   pdfAnalysisCheckedAt: string | null;
   pdfAnalysisError: string | null;
+  keywordTags: string[];
   githubUrls: string[];
   createdAt: string;
   updatedRecordAt: string;
@@ -77,6 +78,7 @@ export type PaperAnalysisResult = {
   methodZh: string;
   contributionZh: string;
   detailZh: string;
+  keywordTags: string[];
   model: string;
   checkedAt: string;
   error: string | null;
@@ -92,6 +94,7 @@ export type PaperPdfAnalysisResult = {
   limitationsZh: string;
   readingGuideZh: string;
   affiliations: string;
+  keywordTags: string[];
   model: string;
   checkedAt: string;
   error: string | null;
@@ -136,6 +139,7 @@ export type PaperRow = {
   pdf_analysis_model: string | null;
   pdf_analysis_checked_at: string | null;
   pdf_analysis_error: string | null;
+  keyword_tags_json: string | null;
   created_at: string;
   updated_record_at: string;
   status: PaperStatus | null;

@@ -35,6 +35,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       pdf_analysis_model TEXT,
       pdf_analysis_checked_at TEXT,
       pdf_analysis_error TEXT,
+      keyword_tags_json TEXT,
       created_at TEXT NOT NULL,
       updated_record_at TEXT NOT NULL,
       UNIQUE(source, source_id)
@@ -79,11 +80,19 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
   ensurePaperFilterColumns(db);
   ensurePaperAnalysisColumns(db);
   ensurePaperPdfAnalysisColumns(db);
+  ensurePaperKeywordTagColumns(db);
   ensureCrawlRunLogColumn(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
     CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
   `);
+}
+
+function ensurePaperKeywordTagColumns(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(papers);").all<{ name: string }>().map((column) => column.name));
+  if (!columns.has("keyword_tags_json")) {
+    db.exec("ALTER TABLE papers ADD COLUMN keyword_tags_json TEXT;");
+  }
 }
 
 function ensurePaperPdfAnalysisColumns(db: SqliteDatabase): void {

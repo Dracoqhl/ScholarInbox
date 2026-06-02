@@ -1,6 +1,7 @@
 import type { AiConnectionConfig } from "@/lib/ai/client";
 import { getAiConnectionConfigFromEnv } from "@/lib/ai/client";
 import type { PaperAnalysisResult, PaperInput } from "@/lib/papers/types";
+import { getPreferredKeywordTags } from "@/lib/user-preferences/research-interest";
 
 type FetchLike = typeof fetch;
 const ANALYSIS_TIMEOUT_MS = 90_000;
@@ -73,16 +74,20 @@ async function analyzeOnePaper(paper: PaperInput, config: AiConnectionConfig, fe
 }
 
 function systemPrompt(): string {
+  const preferredTags = getPreferredKeywordTags().join(", ");
   return [
     "You write Chinese reading notes for one arXiv paper.",
     "Return only JSON. Do not include markdown.",
-    "The JSON must be {\"summaryZh\": string, \"problemZh\": string, \"methodZh\": string, \"contributionZh\": string, \"detailZh\": string}.",
+    "The JSON must be {\"summaryZh\": string, \"problemZh\": string, \"methodZh\": string, \"contributionZh\": string, \"detailZh\": string, \"keywordTags\": string[]}.",
     "summaryZh must be one concise Chinese sentence explaining what the paper is about.",
     "problemZh must explain the problem the paper solves in 1-2 Chinese sentences.",
     "methodZh must explain the core method in 1-2 Chinese sentences.",
     "contributionZh must explain the main contribution in 1-2 Chinese sentences.",
     "detailZh must be a richer Chinese explanation for a detail page, covering background, method flow, experiments, limitations, and what the reader should take away.",
-    "Do not output relevance reasons or topic tags."
+    "keywordTags must contain 2-5 compact core tags for the paper, not author-provided full keyword lists.",
+    `Prefer canonical tags from this controlled vocabulary: ${preferredTags}.`,
+    "Allow at most one highly central paper-specific method acronym, such as OPD, when it is genuinely core.",
+    "Do not output broad generic tags such as LLM, AI, Deep Learning, Transformer, Benchmark, or NLP unless they are part of a specific canonical tag."
   ].join("\n");
 }
 
@@ -112,10 +117,36 @@ function normalizeAnalysis(sourceId: string, raw: Record<string, unknown>, model
     methodZh: requireString(raw.methodZh, "methodZh"),
     contributionZh: requireString(raw.contributionZh, "contributionZh"),
     detailZh: requireString(raw.detailZh, "detailZh"),
+    keywordTags: requireKeywordTags(raw.keywordTags),
     model,
     checkedAt: new Date().toISOString(),
     error: null
   };
+}
+
+function requireKeywordTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("AI paper analysis returned invalid keywordTags.");
+  }
+  const tags = normalizeKeywordTags(value);
+  if (tags.length === 0) {
+    throw new Error("AI paper analysis returned empty keywordTags.");
+  }
+  return tags;
+}
+
+function normalizeKeywordTags(value: unknown[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const tag = item.trim();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 5) break;
+  }
+  return tags;
 }
 
 function requireString(value: unknown, field: string): string {

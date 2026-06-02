@@ -174,6 +174,27 @@ describe("paper repository", () => {
     expect(cached).toMatchObject({ matched: true, profileHash: "profile-a" });
     expect(stale).toBeNull();
   });
+
+  it("persists compact keyword tags from paper analysis", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00130" }));
+
+    await repository.setAnalysisResult(paper.id, {
+      summaryZh: "这篇论文研究 GRPO 后训练如何提升数学推理。",
+      problemZh: "它要解决可验证奖励下的策略优化稳定性问题。",
+      methodZh: "它使用 GRPO 和过程奖励训练推理模型。",
+      contributionZh: "主要贡献是改进推理后训练流程。",
+      detailZh: "详细解释背景、方法和实验。",
+      keywordTags: ["GRPO", "RLVR", "Math Reasoning"],
+      model: "test-analysis-model",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+
+    expect(await repository.get(paper.id)).toMatchObject({
+      keywordTags: ["GRPO", "RLVR", "Math Reasoning"]
+    });
+  });
 });
 
 function makePaperInput(overrides: Partial<PaperInput> = {}): PaperInput {

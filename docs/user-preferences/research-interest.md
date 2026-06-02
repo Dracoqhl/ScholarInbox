@@ -21,6 +21,38 @@ Include papers whose core contribution is about any of the following:
 - Benchmarks, datasets, or evaluation methods specifically for LLM reasoning, coding, math, formal reasoning, agents, tool use, long-horizon tasks, planning, search, or LLM decision-making.
 - Alignment papers only when they directly concern LLM post-training, preference optimization, reward modeling, reasoning alignment, agent alignment, or improving reasoning/decision-making behavior.
 
+## Preferred Keyword Tags
+
+When generating compact paper tags, prefer this controlled vocabulary and use at most 3-5 tags per paper:
+
+- RLHF
+- DPO
+- GRPO
+- RLVR
+- RLAIF
+- SFT
+- Agentic RL
+- Process Reward
+- Outcome Reward
+- Reward Model
+- Verifier
+- Test-Time Scaling
+- Search
+- Planning
+- Tool Use
+- Code Reasoning
+- Math Reasoning
+- Formal Reasoning
+- Agent Memory
+- Multi-Agent
+- RAG
+- MDP/POMDP
+- Long-Horizon Reasoning
+
+Allow at most one highly central paper-specific method acronym when it is genuinely core to the paper, such as OPD.
+
+Avoid broad generic tags such as LLM, AI, Deep Learning, Transformer, Benchmark, or NLP unless they are part of a more specific preferred tag.
+
 ## Exclude
 
 Exclude papers whose core contribution is mainly about any of the following:

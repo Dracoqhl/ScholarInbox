@@ -5,6 +5,7 @@ import { ExternalLink, FileText, Github, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
+import { KeywordTags } from "@/components/papers/KeywordTags";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
@@ -230,6 +231,9 @@ function PaperCard({
           <Link href={`/papers/${paper.id}`} className="mt-2 block text-base font-semibold leading-6 hover:text-accent">
             {paper.title}
           </Link>
+          <div className="mt-2">
+            <KeywordTags tags={paper.keywordTags} />
+          </div>
           {paper.analysisSummaryZh ? (
             <div className="mt-3 space-y-2 text-sm leading-6 text-primary/90">
               <p className="font-medium">{paper.analysisSummaryZh}</p>

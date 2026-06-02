@@ -1,6 +1,7 @@
 import type { AiConnectionConfig } from "@/lib/ai/client";
 import { getAiConnectionConfigFromEnv } from "@/lib/ai/client";
 import type { Paper, PaperPdfAnalysisResult } from "@/lib/papers/types";
+import { getPreferredKeywordTags } from "@/lib/user-preferences/research-interest";
 
 type FetchLike = typeof fetch;
 
@@ -69,10 +70,11 @@ export async function analyzePdfTextWithLlm(
 }
 
 function systemPrompt(): string {
+  const preferredTags = getPreferredKeywordTags().join(", ");
   return [
     "You write detailed Chinese reading notes for one arXiv paper from its extracted PDF text.",
     "Return only JSON. Do not include markdown.",
-    "The JSON must be {\"overviewZh\": string, \"backgroundZh\": string, \"problemFormulationZh\": string, \"methodZh\": string, \"keyIdeasZh\": string, \"experimentsZh\": string, \"limitationsZh\": string, \"readingGuideZh\": string, \"affiliations\": string}.",
+    "The JSON must be {\"overviewZh\": string, \"backgroundZh\": string, \"problemFormulationZh\": string, \"methodZh\": string, \"keyIdeasZh\": string, \"experimentsZh\": string, \"limitationsZh\": string, \"readingGuideZh\": string, \"affiliations\": string, \"keywordTags\": string[]}.",
     "overviewZh should be 2-3 Chinese sentences explaining what the paper is about and why it matters.",
     "backgroundZh should explain the research context and prerequisite ideas.",
     "problemFormulationZh should describe the actual problem, setup, objective, variables, or evaluation target. If the paper is not formal, explain its implicit formulation.",
@@ -82,6 +84,10 @@ function systemPrompt(): string {
     "limitationsZh should state limitations, assumptions, missing evidence, and risks.",
     "readingGuideZh should tell the user which sections, equations, tables, or figures to read first and what questions to check while reading.",
     "affiliations should list author institutions or labs found in the PDF. If not identifiable, output \"未识别\".",
+    "keywordTags must contain 2-5 compact core tags for the paper, not author-provided full keyword lists.",
+    `Prefer canonical tags from this controlled vocabulary: ${preferredTags}.`,
+    "Allow at most one highly central paper-specific method acronym, such as OPD, when it is genuinely core.",
+    "Do not output broad generic tags such as LLM, AI, Deep Learning, Transformer, Benchmark, or NLP unless they are part of a specific canonical tag.",
     "Be faithful to the PDF text. If a detail is not in the text, say it is not clear rather than inventing it."
   ].join("\n");
 }
@@ -116,10 +122,36 @@ function normalizePdfAnalysis(raw: Record<string, unknown>, model: string): Pape
     limitationsZh: requireString(raw.limitationsZh, "limitationsZh"),
     readingGuideZh: requireString(raw.readingGuideZh, "readingGuideZh"),
     affiliations: requireString(raw.affiliations, "affiliations"),
+    keywordTags: requireKeywordTags(raw.keywordTags),
     model,
     checkedAt: new Date().toISOString(),
     error: null
   };
+}
+
+function requireKeywordTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("AI PDF analysis returned invalid keywordTags.");
+  }
+  const tags = normalizeKeywordTags(value);
+  if (tags.length === 0) {
+    throw new Error("AI PDF analysis returned empty keywordTags.");
+  }
+  return tags;
+}
+
+function normalizeKeywordTags(value: unknown[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const tag = item.trim();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 5) break;
+  }
+  return tags;
 }
 
 function requireString(value: unknown, field: string): string {

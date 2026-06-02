@@ -46,6 +46,7 @@ describe("PDF paper analysis", () => {
           limitationsZh: "局限是依赖可验证任务和高质量轨迹构造。",
           readingGuideZh: "精读时优先看方法章节、reward 设计和 ablation。",
           affiliations: "Example University; Example Lab",
+          keywordTags: ["Process Reward", "RLVR", "Math Reasoning"],
           model: "test-pdf-analysis-model",
           checkedAt: "2026-06-02T00:00:00.000Z",
           error: null
@@ -95,6 +96,7 @@ describe("PDF paper analysis", () => {
     expect(analysis).toMatchObject({
       overviewZh: "PDF 导读",
       affiliations: "Example University",
+      keywordTags: ["Agentic RL", "Tool Use"],
       model: "test-model",
       error: null
     });
@@ -111,7 +113,8 @@ function makeLlmJson() {
     experimentsZh: "实验",
     limitationsZh: "局限",
     readingGuideZh: "阅读建议",
-    affiliations: "Example University"
+    affiliations: "Example University",
+    keywordTags: ["Agentic RL", "Tool Use"]
   };
 }
 

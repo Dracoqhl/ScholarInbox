@@ -199,6 +199,7 @@ class PaperRepository {
              analysis_model = @model,
              analysis_checked_at = @checkedAt,
              analysis_error = @error,
+             keyword_tags_json = @keywordTagsJson,
              updated_record_at = @updatedRecordAt
          WHERE id = @id`
       )
@@ -212,6 +213,7 @@ class PaperRepository {
         model: result.model,
         checkedAt: result.checkedAt,
         error: result.error,
+        keywordTagsJson: JSON.stringify(normalizeKeywordTags(result.keywordTags)),
         updatedRecordAt: new Date().toISOString()
       });
     return this.get(id);
@@ -233,6 +235,7 @@ class PaperRepository {
              pdf_analysis_model = @model,
              pdf_analysis_checked_at = @checkedAt,
              pdf_analysis_error = @error,
+             keyword_tags_json = @keywordTagsJson,
              updated_record_at = @updatedRecordAt
          WHERE id = @id`
       )
@@ -250,6 +253,7 @@ class PaperRepository {
         model: result.model,
         checkedAt: result.checkedAt,
         error: result.error,
+        keywordTagsJson: JSON.stringify(normalizeKeywordTags(result.keywordTags)),
         updatedRecordAt: new Date().toISOString()
       });
     return this.get(id);
@@ -348,8 +352,34 @@ function mapPaper(row: PaperRow): Paper {
     pdfAnalysisModel: row.pdf_analysis_model,
     pdfAnalysisCheckedAt: row.pdf_analysis_checked_at,
     pdfAnalysisError: row.pdf_analysis_error,
+    keywordTags: parseKeywordTags(row.keyword_tags_json),
     githubUrls: extractGithubUrls(row.abstract),
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
   };
+}
+
+function parseKeywordTags(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return normalizeKeywordTags(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeKeywordTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const tag = item.trim();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 5) break;
+  }
+  return tags;
 }

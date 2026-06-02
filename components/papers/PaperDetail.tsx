@@ -5,6 +5,7 @@ import { ExternalLink, FileText, Github, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
+import { KeywordTags } from "@/components/papers/KeywordTags";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
 
@@ -97,6 +98,9 @@ export function PaperDetail({ id }: { id: string }) {
           <h2 className="mt-3 text-2xl font-semibold leading-8">{paper.title}</h2>
           <p className="mt-3 text-sm text-muted">{paper.authors.join(", ")}</p>
           <p className="mt-2 text-sm text-muted">完成单位：{paper.pdfAnalysisAffiliations ?? "PDF 精读解析后显示"}</p>
+          <div className="mt-3">
+            <KeywordTags tags={paper.keywordTags} />
+          </div>
         </div>
         <div className="flex shrink-0 gap-2">
           <StatusSelect value={paper.status} disabled={isSaving} onChange={(next) => void patchStatus(next)} />
