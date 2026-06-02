@@ -4,6 +4,7 @@ import type { PaperInput } from "@/lib/papers/types";
 
 type FetchLike = typeof fetch;
 const MATCH_SCORE_THRESHOLD = 0.65;
+const AI_FILTER_TIMEOUT_MS = 90_000;
 
 export async function classifyPapersWithLlm(
   papers: PaperInput[],
@@ -24,35 +25,48 @@ export async function classifyPapersWithLlm(
   }
 
   const fetcher = options.fetcher ?? fetch;
-  const response = await fetcher(`${baseUrl.replace(/\/+$/, "")}/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: systemPrompt() }]
-        },
-        {
-          role: "user",
-          content: [{ type: "input_text", text: userPrompt(options.interestProfile, papers) }]
-        }
-      ],
-      max_output_tokens: 1200,
-      stream: true
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_FILTER_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`AI filter request failed with ${response.status}. ${sanitizeProviderError(body, apiKey)}`);
+  try {
+    const response = await fetcher(`${baseUrl.replace(/\/+$/, "")}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "system",
+            content: [{ type: "input_text", text: systemPrompt() }]
+          },
+          {
+            role: "user",
+            content: [{ type: "input_text", text: userPrompt(options.interestProfile, papers) }]
+          }
+        ],
+        max_output_tokens: 1200,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`AI filter request failed with ${response.status}. ${sanitizeProviderError(body, apiKey)}`);
+    }
+
+    return normalizeLlmResults(parseLlmJsonArray(await readStreamingText(response)), papers, options.profileHash);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("AI filter request timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return normalizeLlmResults(parseLlmJsonArray(await readStreamingText(response)), papers, options.profileHash);
 }
 
 function systemPrompt(): string {
@@ -85,22 +99,72 @@ function userPrompt(interestProfile: string, papers: PaperInput[]): string {
 }
 
 async function readStreamingText(response: Response): Promise<string> {
-  const text = await response.text();
-  let output = "";
+  if (!response.body) return readStreamingLines(await response.text());
 
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
-    const data = line.slice("data:".length).trim();
-    if (!data || data === "[DONE]") continue;
-    const event = JSON.parse(data) as { type?: string; delta?: string; text?: string };
-    if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
-      output += event.delta;
-    } else if (event.type === "response.output_text.done" && !output && typeof event.text === "string") {
-      output = event.text;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let buffer = "";
+
+  const readLine = (line: string): boolean => {
+    const result = readStreamingLine(line, output);
+    output = result.output;
+    return result.done;
+  };
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
+        buffer = buffer.slice(newlineIndex + 1);
+        if (readLine(line)) {
+          await reader.cancel().catch(() => undefined);
+          return output.trim();
+        }
+        newlineIndex = buffer.indexOf("\n");
+      }
     }
+
+    buffer += decoder.decode();
+    for (const line of buffer.split(/\r?\n/)) {
+      if (readLine(line)) return output.trim();
+    }
+  } finally {
+    reader.releaseLock();
   }
 
   return output.trim();
+}
+
+function readStreamingLines(text: string): string {
+  let output = "";
+  for (const line of text.split(/\r?\n/)) {
+    const result = readStreamingLine(line, output);
+    output = result.output;
+    if (result.done) break;
+  }
+  return output.trim();
+}
+
+function readStreamingLine(line: string, currentOutput: string): { output: string; done: boolean } {
+  if (!line.startsWith("data:")) return { output: currentOutput, done: false };
+  const data = line.slice("data:".length).trim();
+  if (!data) return { output: currentOutput, done: false };
+  if (data === "[DONE]") return { output: currentOutput, done: true };
+
+  const event = JSON.parse(data) as { type?: string; delta?: string; text?: string };
+  if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+    return { output: currentOutput + event.delta, done: false };
+  }
+  if (event.type === "response.output_text.done" && !currentOutput && typeof event.text === "string") {
+    return { output: event.text, done: false };
+  }
+  return { output: currentOutput, done: false };
 }
 
 function parseLlmJsonArray(text: string): Array<{ sourceId: string; matched: boolean; score: number }> {

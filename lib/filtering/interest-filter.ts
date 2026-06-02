@@ -6,7 +6,7 @@ import type { AiConnectionConfig } from "@/lib/ai/client";
 import { getAiConnectionConfigFromEnv } from "@/lib/ai/client";
 import type { PaperInput } from "@/lib/papers/types";
 
-const AI_BATCH_SIZE = 15;
+const AI_BATCH_SIZE = 30;
 
 const POSITIVE_TERMS = [
   "large language model",

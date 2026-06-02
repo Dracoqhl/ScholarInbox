@@ -103,6 +103,51 @@ describe("arXiv source", () => {
     expect(sleeps).toEqual([3000]);
     expect(papers).toHaveLength(1);
   });
+
+  it("backs off longer when arXiv returns a rate limit response", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const sleeps: number[] = [];
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(makeArxivResponse("rate limited", { ok: false, status: 429 }))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed()));
+
+    const papers = await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([30000]);
+    expect(papers).toHaveLength(1);
+  });
+
+  it("aborts arXiv requests that do not return", async () => {
+    resetArxivRateLimitForTests();
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+
+    try {
+      const pending = fetchArxivPapers(makeFetchOptions(), { fetcher });
+      const rejection = expect(pending).rejects.toThrow("arXiv request timed out");
+      await vi.advanceTimersByTimeAsync(45_000);
+
+      expect(signal?.aborted).toBe(true);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 function makeFetchOptions() {

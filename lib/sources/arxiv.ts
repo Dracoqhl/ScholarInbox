@@ -3,6 +3,8 @@ import type { PaperSourceFetchOptions } from "@/lib/sources/types";
 
 const ARXIV_API_URL = "https://export.arxiv.org/api/query";
 const ARXIV_REQUEST_DELAY_MS = 3000;
+const ARXIV_RATE_LIMIT_BACKOFF_MS = 30000;
+const ARXIV_REQUEST_TIMEOUT_MS = 45000;
 const ARXIV_MAX_RETRIES = 2;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
@@ -121,6 +123,10 @@ async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Prom
       return response;
     }
     lastResponse = response;
+    if (response.status === 429) {
+      await (runtime.sleep ?? defaultSleep)(ARXIV_RATE_LIMIT_BACKOFF_MS);
+      lastArxivRequestAt = null;
+    }
   }
 
   return lastResponse ?? requestArxiv(url, runtime);
@@ -157,13 +163,26 @@ async function waitForArxivRequestSlot(runtime: ArxivFetchRuntime): Promise<void
   lastArxivRequestAt = now();
 }
 
-function requestArxiv(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
+async function requestArxiv(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
   const fetcher = runtime.fetcher ?? fetch;
-  return fetcher(url, {
-    headers: {
-      "User-Agent": "ScholarInbox/0.1 (personal research paper inbox; https://github.com/Dracoqhl/ScholarInbox)"
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARXIV_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetcher(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "ScholarInbox/0.1 (personal research paper inbox; https://github.com/Dracoqhl/ScholarInbox)"
+      }
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("arXiv request timed out.");
     }
-  });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function defaultSleep(ms: number): Promise<void> {

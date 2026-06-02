@@ -54,6 +54,28 @@ describe("interest filtering", () => {
     ]);
   });
 
+  it("uses a larger default AI batch size for crawl throughput", async () => {
+    const classify = vi.fn().mockImplementation(async (batch: PaperInput[]) => batch.map((paper) => ({
+      sourceId: paper.sourceId,
+      matched: true,
+      score: 0.9,
+      method: "llm",
+      profileHash: "hash",
+      checkedAt: "now",
+      error: null
+    })));
+    const papers = Array.from({ length: 31 }, (_, index) => makePaper({ sourceId: `2601.${String(index).padStart(5, "0")}` }));
+
+    await filterPapersByInterest(papers, {
+      interestProfile: "大语言模型推理、agentic RL、tool use",
+      classify
+    });
+
+    expect(classify).toHaveBeenCalledTimes(2);
+    expect(classify.mock.calls[0]?.[0]).toHaveLength(30);
+    expect(classify.mock.calls[1]?.[0]).toHaveLength(1);
+  });
+
   it("classifies a batch through the streaming Responses API", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response([
       "event: response.output_text.delta",
@@ -99,6 +121,72 @@ describe("interest filtering", () => {
         error: null
       }
     ]);
+  });
+
+  it("stops reading a streaming response when the provider sends DONE", async () => {
+    let cancelled = false;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          "data: {\"type\":\"response.output_text.delta\",\"delta\":\"[{\\\"sourceId\\\":\\\"2601.00002\\\",\\\"matched\\\":true,\\\"score\\\":0.92}]\"}",
+          "",
+          "data: [DONE]",
+          ""
+        ].join("\n")));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+
+    const result = await Promise.race([
+      classifyPapersWithLlm([makePaper({ sourceId: "2601.00002" })], {
+        interestProfile: "大语言模型推理",
+        profileHash: "profile-hash",
+        config: {
+          baseUrl: "https://api.example.com/v1",
+          model: "test-model",
+          apiKey: "test-key"
+        },
+        fetcher
+      }),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100))
+    ]);
+
+    expect(result).not.toBe("timeout");
+    expect(cancelled).toBe(true);
+  });
+
+  it("aborts AI filtering requests that do not return", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+
+    try {
+      const pending = classifyPapersWithLlm([makePaper({ sourceId: "2601.00002" })], {
+        interestProfile: "大语言模型推理",
+        profileHash: "profile-hash",
+        config: {
+          baseUrl: "https://api.example.com/v1",
+          model: "test-model",
+          apiKey: "test-key"
+        },
+        fetcher
+      });
+      const rejection = expect(pending).rejects.toThrow("AI filter request timed out");
+      await vi.advanceTimersByTimeAsync(90_000);
+
+      expect(signal?.aborted).toBe(true);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("applies a strict score threshold even when the model marks a paper as matched", async () => {
