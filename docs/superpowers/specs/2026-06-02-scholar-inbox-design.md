@@ -122,12 +122,13 @@ Favorite state is independent from reading status. A paper may be `done` and fav
 
 ## Single-Paper Analysis
 
-During early testing, ScholarInbox did not batch-analyze papers. The current workflow now analyzes every matched paper for homepage display and keeps PDF deep analysis as a per-paper detail-page action.
+During early testing, ScholarInbox did not batch-analyze papers. The current workflow now analyzes every matched paper for homepage display and also generates PDF-based detail-page analysis during crawl.
 
 Requirements:
 
 - Generate homepage Chinese analysis for every matched paper that does not already have analysis.
-- Add one detail-page action to parse/analyze a single paper PDF.
+- Generate PDF detail analysis for every matched paper that does not already have a PDF reading guide.
+- Keep one detail-page action to refresh or backfill a single paper PDF.
 - Store both analysis result types for later display.
 
 The exact analysis prompt and output structure will be refined after the ingestion and filtering loop works.

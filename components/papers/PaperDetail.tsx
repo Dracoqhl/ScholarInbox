@@ -118,7 +118,7 @@ export function PaperDetail({ id }: { id: string }) {
             ? "正在下载 PDF、抽取正文并调用大模型，长论文可能需要几分钟。"
             : paper.pdfAnalysisCheckedAt
               ? `上次解析：${new Date(paper.pdfAnalysisCheckedAt).toLocaleString("zh-CN")}`
-              : "详情页使用 PDF 正文解析；未生成前先展示摘要级中文解析。"}
+              : "详情页使用 PDF 正文解析；抓取未生成或需要重跑时可手动触发。"}
         </span>
         {error ? <span className="w-full rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</span> : null}
       </div>
@@ -141,7 +141,7 @@ export function PaperDetail({ id }: { id: string }) {
       ) : paper.analysisSummaryZh ? (
         <div className="mt-6 max-w-4xl space-y-5">
           <div className="rounded-md border border-accent/30 bg-accent/10 p-4 text-sm leading-6 text-primary/80">
-            当前展示的是摘要级解析。点击“生成 PDF 精读解析”后，详情页会改用 PDF 正文生成的深度梳理。
+            当前展示的是摘要级解析。抓取后通常会自动生成 PDF 精读解析；也可以点击“生成 PDF 精读解析”立即补生成。
           </div>
           <section className="rounded-md border border-line bg-background p-4">
             <h3 className="text-sm font-semibold">一句话概括</h3>
@@ -168,7 +168,7 @@ export function PaperDetail({ id }: { id: string }) {
         </div>
       ) : (
         <div className="mt-6 rounded-md border border-line bg-background p-4 text-sm text-muted">
-          这篇论文还没有中文解析。新抓取的匹配论文会自动生成摘要级中文解析，也可以先生成 PDF 精读解析。
+          这篇论文还没有中文解析。新抓取的匹配论文会自动生成摘要级中文解析和 PDF 精读解析，也可以先手动生成 PDF 精读解析。
         </div>
       )}
       <section className="mt-6 max-w-4xl rounded-md border border-line bg-background p-4">

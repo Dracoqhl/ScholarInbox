@@ -165,7 +165,8 @@ Owns interest profile matching.
 Owns single-paper parsing and analysis.
 
 - Crawl-time homepage analysis runs for every matched paper that does not already have Chinese analysis.
-- Detail-page PDF deep analysis is triggered per paper and stores a richer reading guide.
+- Crawl-time PDF detail analysis runs for every matched paper that does not already have a PDF reading guide.
+- Detail-page PDF analysis action refreshes or backfills a single paper and stores the same richer reading guide.
 - Analysis output structure can continue to be refined from user reading feedback.
 
 ### `lib/settings/`

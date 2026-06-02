@@ -9,7 +9,7 @@ import { ensureDatabaseSchema } from "../lib/db/schema";
 import { crawlArxivDateRange } from "../lib/crawls/crawler";
 import { createCrawlRepository } from "../lib/crawls/repository";
 import { createPaperRepository } from "../lib/papers/repository";
-import type { PaperInput } from "../lib/papers/types";
+import type { Paper, PaperInput } from "../lib/papers/types";
 
 describe("crawl service", () => {
   let dir: string;
@@ -43,7 +43,8 @@ describe("crawl service", () => {
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
       })),
-      analyzePapers: async () => []
+      analyzePapers: async () => [],
+      analyzePaperPdf: passThroughPdfAnalysis
     });
 
     const papers = await createPaperRepository(db).list({});
@@ -83,16 +84,18 @@ describe("crawl service", () => {
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
       })),
-      analyzePapers: async () => []
+      analyzePapers: async () => [],
+      analyzePaperPdf: passThroughPdfAnalysis
     });
     const [storedRun] = await createCrawlRepository(db).list();
 
-    expect(result.logs.map((log) => log.level)).toEqual(["info", "info", "info", "info", "info"]);
+    expect(result.logs.map((log) => log.level)).toEqual(["info", "info", "info", "info", "info", "info"]);
     expect(result.logs.map((log) => log.message)).toEqual([
       "Started manual arXiv crawl.",
       "Fetched papers from arXiv.",
       "Filtered papers by interest profile.",
       "Stored papers and filter results.",
+      "Generated PDF paper analysis.",
       "Completed crawl."
     ]);
     expect(result.logs[0]).toMatchObject({
@@ -123,8 +126,8 @@ describe("crawl service", () => {
       return filterPapers(papers, options);
     };
 
-    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [] });
-    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [] });
+    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [], analyzePaperPdf: passThroughPdfAnalysis });
+    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [], analyzePaperPdf: passThroughPdfAnalysis });
 
     expect(filterCallCount).toBe(1);
     expect(second.insertedCount).toBe(0);
@@ -153,7 +156,8 @@ describe("crawl service", () => {
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
       })),
-      analyzePapers: async () => []
+      analyzePapers: async () => [],
+      analyzePaperPdf: passThroughPdfAnalysis
     });
 
     expect(result.fetchedCount).toBe(2);
@@ -198,7 +202,8 @@ describe("crawl service", () => {
           checkedAt: "2026-06-02T00:00:00.000Z",
           error: null
         }));
-      }
+      },
+      analyzePaperPdf: passThroughPdfAnalysis
     });
 
     const papers = await createPaperRepository(db).list({});
@@ -209,6 +214,60 @@ describe("crawl service", () => {
     expect(analyzed.map((paper) => paper.sourceId)).toEqual(["2401.00010", "2401.00009"]);
     expect(analyzed[0]).toMatchObject({
       analysisModel: "test-analysis-model"
+    });
+  });
+
+  it("generates PDF detail analysis for every matched paper that does not already have it", async () => {
+    const db = getDatabase(databasePath);
+    const repository = createPaperRepository(db);
+    const pdfAnalyzedSourceIds: string[] = [];
+
+    await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => [makePaperInput("2401.00012"), makePaperInput("2401.00013"), makePaperInput("2401.00014")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+        sourceId: paper.sourceId,
+        matched: paper.sourceId !== "2401.00014",
+        score: paper.sourceId !== "2401.00014" ? 0.9 : 0.2,
+        method: "llm",
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      })),
+      analyzePapers: async () => [],
+      analyzePaperPdf: async (paper) => {
+        pdfAnalyzedSourceIds.push(paper.sourceId);
+        const updated = await repository.setPdfAnalysisResult(paper.id, {
+          overviewZh: `PDF 导读 ${paper.sourceId}`,
+          backgroundZh: "背景",
+          problemFormulationZh: "问题定义",
+          methodZh: "方法",
+          keyIdeasZh: "关键思想",
+          experimentsZh: "实验",
+          limitationsZh: "局限",
+          readingGuideZh: "阅读建议",
+          affiliations: "Example University",
+          model: "test-pdf-model",
+          checkedAt: "2026-06-02T00:00:00.000Z",
+          error: null
+        });
+        if (!updated) throw new Error("paper missing");
+        return updated;
+      }
+    });
+
+    const papers = await repository.list({});
+    const pdfAnalyzed = papers.filter((paper) => paper.pdfAnalysisOverviewZh);
+
+    expect(pdfAnalyzedSourceIds).toEqual(["2401.00012", "2401.00013"]);
+    expect(pdfAnalyzed).toHaveLength(2);
+    expect(pdfAnalyzed.map((paper) => paper.sourceId)).toEqual(["2401.00013", "2401.00012"]);
+    expect(pdfAnalyzed[0]).toMatchObject({
+      pdfAnalysisModel: "test-pdf-model",
+      pdfAnalysisAffiliations: "Example University"
     });
   });
 
@@ -230,7 +289,8 @@ describe("crawl service", () => {
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
       })),
-      analyzePapers: async () => []
+      analyzePapers: async () => [],
+      analyzePaperPdf: passThroughPdfAnalysis
     });
 
     const repository = createPaperRepository(db);
@@ -254,4 +314,8 @@ function makePaperInput(sourceId: string): PaperInput {
     sourceUrl: `https://arxiv.org/abs/${sourceId}`,
     pdfUrl: `https://arxiv.org/pdf/${sourceId}`
   };
+}
+
+async function passThroughPdfAnalysis(paper: Paper): Promise<Paper> {
+  return paper;
 }

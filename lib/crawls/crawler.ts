@@ -8,6 +8,8 @@ import { getResearchInterestProfile } from "@/lib/user-preferences/research-inte
 import { fetchArxivPapers } from "@/lib/sources/arxiv";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
 import { analyzePapersWithLlm, type PaperAnalysisWithSourceId } from "@/lib/paper-analysis/llm-analysis";
+import { generateAndStorePdfAnalysis } from "@/lib/pdf-analysis/service";
+import type { Paper } from "@/lib/papers/types";
 
 export async function crawlArxivDateRange(input: {
   db: SqliteDatabase;
@@ -18,6 +20,7 @@ export async function crawlArxivDateRange(input: {
   fetchPapers?: PaperSourceFetcher;
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
   analyzePapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>) => Promise<PaperAnalysisWithSourceId[]>;
+  analyzePaperPdf?: (paper: Paper) => Promise<Paper>;
 }): Promise<CrawlRun> {
   const crawlRepository = createCrawlRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
@@ -78,6 +81,7 @@ export async function crawlArxivDateRange(input: {
     let rawInsertedCount = 0;
     let effectiveInsertedCount = 0;
     const analysisCandidates: Array<{ paperId: string; paper: Awaited<ReturnType<PaperSourceFetcher>>[number] }> = [];
+    const pdfAnalysisCandidates: Paper[] = [];
 
     for (const paper of papers) {
       const result = await paperRepository.upsert(paper);
@@ -88,6 +92,9 @@ export async function crawlArxivDateRange(input: {
         if (result.inserted && filterResult.matched) effectiveInsertedCount += 1;
         if (filterResult.matched && !updatedPaper?.analysisSummaryZh) {
           analysisCandidates.push({ paperId: result.paper.id, paper });
+        }
+        if (filterResult.matched && updatedPaper && !updatedPaper.pdfAnalysisOverviewZh) {
+          pdfAnalysisCandidates.push(updatedPaper);
         }
       }
     }
@@ -118,6 +125,24 @@ export async function crawlArxivDateRange(input: {
           details: {
             analyzedCount,
             candidateCount: analysisCandidates.length
+          }
+        });
+      }
+    }
+    if (pdfAnalysisCandidates.length) {
+      const analyzePaperPdf = input.analyzePaperPdf ?? ((paper: Paper) => generateAndStorePdfAnalysis({ paperRepository, paper }));
+      let pdfAnalyzedCount = 0;
+      for (const paper of pdfAnalysisCandidates) {
+        await analyzePaperPdf(paper);
+        pdfAnalyzedCount += 1;
+      }
+      if (pdfAnalyzedCount > 0) {
+        await crawlRepository.appendLog(run.id, {
+          level: "info",
+          message: "Generated PDF paper analysis.",
+          details: {
+            analyzedCount: pdfAnalyzedCount,
+            candidateCount: pdfAnalysisCandidates.length
           }
         });
       }

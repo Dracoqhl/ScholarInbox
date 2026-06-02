@@ -29,7 +29,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - The user currently cares about large language model post-training, model reasoning, test-time scaling, RLHF/DPO/RLAIF, agentic RL, tool use, and multi-agent reasoning.
 - Add a paper favorite feature so high-value papers can be revisited later.
 - Favorite state is independent from reading status.
-- New matched papers should receive homepage Chinese analysis during crawl; detail-page PDF deep analysis remains a per-paper action.
+- New matched papers should receive both homepage Chinese analysis and PDF-based detail analysis during crawl; the detail-page PDF action is for refresh or backfill.
 - API keys and secrets must stay server-side and must not be committed.
 - Current MVP can manually crawl arXiv date ranges, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
 - Paper status includes `irrelevant` / `方向无关`. Before future filtering changes, check whether such papers exist and discuss calibration with the user before introducing broader filters.
@@ -37,7 +37,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Manual arXiv crawls default to the most recent 7 UTC dates because same-day `submittedDate` queries can return zero before arXiv publishes the latest batch.
 - arXiv legacy API requests must stay single-connection with at least 3 seconds between requests; the source fetcher includes in-process throttling and limited 429/5xx retries.
 - Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/responses` call.
-- Current MVP does not yet implement daily scheduled crawl. Single-paper PDF deep analysis is available from the paper detail page.
+- Current MVP does not yet implement daily scheduled crawl. PDF detail analysis runs automatically for matched crawl results and can be refreshed from the paper detail page.
 
 ## Documentation Rules
 
