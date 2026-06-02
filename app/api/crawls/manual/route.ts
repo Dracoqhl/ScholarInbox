@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { crawlArxivDateRange } from "@/lib/crawls/crawler";
@@ -20,14 +19,58 @@ export async function POST(request: Request) {
     const body = bodySchema.parse(await request.json());
     const db = getAppDatabase();
     const settings = await createSettingsRepository(db).get();
-    const run = await crawlArxivDateRange({
-      db,
-      categories: body.categories?.length ? body.categories : settings.categories,
-      dateFrom: body.dateFrom,
-      dateTo: body.dateTo,
-      maxResults: body.maxResults
+    const encoder = new TextEncoder();
+    const categories = body.categories?.length ? body.categories : settings.categories;
+    const stream = new ReadableStream({
+      start(controller) {
+        const send = (event: unknown) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        };
+
+        void (async () => {
+          try {
+            send({
+              type: "log",
+              log: {
+                at: new Date().toISOString(),
+                level: "info",
+                message: "Accepted manual crawl request.",
+                stage: "submitted",
+                progress: { current: 0, total: 7, label: "请求已提交" },
+                details: {
+                  categories,
+                  dateFrom: body.dateFrom,
+                  dateTo: body.dateTo,
+                  maxResults: body.maxResults
+                }
+              }
+            });
+            const run = await crawlArxivDateRange({
+              db,
+              categories,
+              dateFrom: body.dateFrom,
+              dateTo: body.dateTo,
+              maxResults: body.maxResults,
+              onLog: (log) => send({ type: "log", log })
+            });
+            send({ type: "run", run });
+          } catch (error) {
+            send({
+              type: "error",
+              error: error instanceof Error ? error.message : "Unexpected server error"
+            });
+          } finally {
+            controller.close();
+          }
+        })();
+      }
     });
-    return NextResponse.json({ run });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store"
+      }
+    });
   } catch (error) {
     return handleRouteError(error);
   }

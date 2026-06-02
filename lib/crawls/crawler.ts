@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from "@/lib/db/database";
 import { createCrawlRepository } from "@/lib/crawls/repository";
-import type { CrawlRun } from "@/lib/crawls/types";
+import type { CrawlLogEntry, CrawlRun } from "@/lib/crawls/types";
 import { createPaperRepository } from "@/lib/papers/repository";
 import { filterPapersByInterest, getInterestProfileHash } from "@/lib/filtering/interest-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";
@@ -21,6 +21,7 @@ export async function crawlArxivDateRange(input: {
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
   analyzePapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>) => Promise<PaperAnalysisWithSourceId[]>;
   analyzePaperPdf?: (paper: Paper) => Promise<Paper>;
+  onLog?: (log: CrawlLogEntry) => void | Promise<void>;
 }): Promise<CrawlRun> {
   const crawlRepository = createCrawlRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
@@ -32,9 +33,17 @@ export async function crawlArxivDateRange(input: {
   });
 
   try {
-    await crawlRepository.appendLog(run.id, {
+    const appendLog = async (entry: Omit<CrawlLogEntry, "at">) => {
+      const nextRun = await crawlRepository.appendLog(run.id, entry);
+      const nextLog = nextRun.logs[nextRun.logs.length - 1];
+      if (nextLog) await input.onLog?.(nextLog);
+    };
+
+    await appendLog({
       level: "info",
       message: "Started manual arXiv crawl.",
+      stage: "started",
+      progress: { current: 0, total: 7, label: "初始化抓取任务" },
       details: {
         categories: input.categories,
         dateFrom: input.dateFrom,
@@ -42,21 +51,38 @@ export async function crawlArxivDateRange(input: {
         maxResults: input.maxResults
       }
     });
+    await appendLog({
+      level: "info",
+      message: "Fetching papers from arXiv.",
+      stage: "fetching",
+      progress: { current: 1, total: 7, label: "请求 arXiv" }
+    });
     const papers = await (input.fetchPapers ?? fetchArxivPapers)({
       categories: input.categories,
       dateFrom: input.dateFrom,
       dateTo: input.dateTo,
       maxResults: input.maxResults
     });
-    await crawlRepository.appendLog(run.id, {
+    await appendLog({
       level: "info",
       message: "Fetched papers from arXiv.",
+      stage: "fetching",
+      progress: { current: 2, total: 7, label: "完成 arXiv 抓取" },
       details: {
         count: papers.length
       }
     });
     const interestProfile = getResearchInterestProfile();
     const profileHash = getInterestProfileHash(interestProfile);
+    await appendLog({
+      level: "info",
+      message: "Filtering papers by interest profile.",
+      stage: "filtering",
+      progress: { current: 3, total: 7, label: "AI 过滤候选论文" },
+      details: {
+        candidateCount: papers.length
+      }
+    });
     const filter = await getFilterResults({
       papers,
       profileHash,
@@ -66,9 +92,11 @@ export async function crawlArxivDateRange(input: {
     });
     const filterResults = filter.results;
     const matchedCount = filterResults.filter((result) => result.matched).length;
-    await crawlRepository.appendLog(run.id, {
+    await appendLog({
       level: "info",
       message: "Filtered papers by interest profile.",
+      stage: "filtering",
+      progress: { current: 4, total: 7, label: "完成兴趣过滤" },
       details: {
         checkedCount: filterResults.length,
         cachedFilterCount: filter.cachedCount,
@@ -82,6 +110,16 @@ export async function crawlArxivDateRange(input: {
     let effectiveInsertedCount = 0;
     const analysisCandidates: Array<{ paperId: string; paper: Awaited<ReturnType<PaperSourceFetcher>>[number] }> = [];
     const pdfAnalysisCandidates: Paper[] = [];
+
+    await appendLog({
+      level: "info",
+      message: "Storing papers and filter results.",
+      stage: "storing",
+      progress: { current: 5, total: 7, label: "写入论文和过滤结果" },
+      details: {
+        paperCount: papers.length
+      }
+    });
 
     for (const paper of papers) {
       const result = await paperRepository.upsert(paper);
@@ -98,9 +136,11 @@ export async function crawlArxivDateRange(input: {
         }
       }
     }
-    await crawlRepository.appendLog(run.id, {
+    await appendLog({
       level: "info",
       message: "Stored papers and filter results.",
+      stage: "storing",
+      progress: { current: 5, total: 7, label: "完成入库" },
       details: {
         rawInsertedCount,
         effectiveInsertedCount,
@@ -109,6 +149,15 @@ export async function crawlArxivDateRange(input: {
       }
     });
     if (analysisCandidates.length) {
+      await appendLog({
+        level: "info",
+        message: "Generating homepage Chinese analysis.",
+        stage: "homepage_analysis",
+        progress: { current: 0, total: analysisCandidates.length, label: "生成首页中文解析" },
+        details: {
+          candidateCount: analysisCandidates.length
+        }
+      });
       const analyses = await (input.analyzePapers ?? analyzePapersWithLlm)(analysisCandidates.map((candidate) => candidate.paper));
       const analysisBySourceId = new Map(analyses.map((analysis) => [analysis.sourceId, analysis]));
       let analyzedCount = 0;
@@ -119,9 +168,11 @@ export async function crawlArxivDateRange(input: {
         analyzedCount += 1;
       }
       if (analyzedCount > 0) {
-        await crawlRepository.appendLog(run.id, {
+        await appendLog({
           level: "info",
           message: "Generated Chinese paper analysis.",
+          stage: "homepage_analysis",
+          progress: { current: analyzedCount, total: analysisCandidates.length, label: "完成首页中文解析" },
           details: {
             analyzedCount,
             candidateCount: analysisCandidates.length
@@ -131,15 +182,38 @@ export async function crawlArxivDateRange(input: {
     }
     if (pdfAnalysisCandidates.length) {
       const analyzePaperPdf = input.analyzePaperPdf ?? ((paper: Paper) => generateAndStorePdfAnalysis({ paperRepository, paper }));
+      await appendLog({
+        level: "info",
+        message: "Generating PDF paper analysis.",
+        stage: "pdf_analysis",
+        progress: { current: 0, total: pdfAnalysisCandidates.length, label: "生成详情页 PDF 精读解析" },
+        details: {
+          candidateCount: pdfAnalysisCandidates.length
+        }
+      });
       let pdfAnalyzedCount = 0;
       for (const paper of pdfAnalysisCandidates) {
         await analyzePaperPdf(paper);
         pdfAnalyzedCount += 1;
+        await appendLog({
+          level: "info",
+          message: "Analyzed PDF detail.",
+          stage: "pdf_analysis",
+          progress: { current: pdfAnalyzedCount, total: pdfAnalysisCandidates.length, label: `PDF 精读 ${pdfAnalyzedCount}/${pdfAnalysisCandidates.length}` },
+          details: {
+            current: pdfAnalyzedCount,
+            total: pdfAnalysisCandidates.length,
+            sourceId: paper.sourceId,
+            title: paper.title
+          }
+        });
       }
       if (pdfAnalyzedCount > 0) {
-        await crawlRepository.appendLog(run.id, {
+        await appendLog({
           level: "info",
           message: "Generated PDF paper analysis.",
+          stage: "pdf_analysis",
+          progress: { current: pdfAnalyzedCount, total: pdfAnalysisCandidates.length, label: "完成详情页 PDF 精读解析" },
           details: {
             analyzedCount: pdfAnalyzedCount,
             candidateCount: pdfAnalysisCandidates.length
@@ -147,9 +221,11 @@ export async function crawlArxivDateRange(input: {
         });
       }
     }
-    await crawlRepository.appendLog(run.id, {
+    await appendLog({
       level: "info",
       message: "Completed crawl.",
+      stage: "completed",
+      progress: { current: 7, total: 7, label: "抓取完成" },
       details: {
         fetchedCount: papers.length,
         insertedCount: effectiveInsertedCount,
@@ -164,13 +240,16 @@ export async function crawlArxivDateRange(input: {
       duplicateCount: filter.cachedCount
     });
   } catch (error) {
-    await crawlRepository.appendLog(run.id, {
+    const failedRun = await crawlRepository.appendLog(run.id, {
       level: "error",
       message: "Crawl failed.",
+      stage: "failed",
       details: {
         error: error instanceof Error ? error.message : "Unknown crawl error"
       }
     });
+    const failedLog = failedRun.logs[failedRun.logs.length - 1];
+    if (failedLog) await input.onLog?.(failedLog);
     return crawlRepository.finish(run.id, {
       status: "failed",
       fetchedCount: 0,

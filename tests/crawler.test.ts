@@ -89,15 +89,38 @@ describe("crawl service", () => {
     });
     const [storedRun] = await createCrawlRepository(db).list();
 
-    expect(result.logs.map((log) => log.level)).toEqual(["info", "info", "info", "info", "info", "info"]);
     expect(result.logs.map((log) => log.message)).toEqual([
       "Started manual arXiv crawl.",
+      "Fetching papers from arXiv.",
       "Fetched papers from arXiv.",
+      "Filtering papers by interest profile.",
       "Filtered papers by interest profile.",
+      "Storing papers and filter results.",
       "Stored papers and filter results.",
+      "Generating homepage Chinese analysis.",
+      "Generating PDF paper analysis.",
+      "Analyzed PDF detail.",
       "Generated PDF paper analysis.",
       "Completed crawl."
     ]);
+    expect(result.logs.map((log) => log.stage)).toEqual([
+      "started",
+      "fetching",
+      "fetching",
+      "filtering",
+      "filtering",
+      "storing",
+      "storing",
+      "homepage_analysis",
+      "pdf_analysis",
+      "pdf_analysis",
+      "pdf_analysis",
+      "completed"
+    ]);
+    expect(result.logs.find((log) => log.message === "Analyzed PDF detail.")?.progress).toMatchObject({
+      current: 1,
+      total: 1
+    });
     expect(result.logs[0]).toMatchObject({
       details: {
         categories: ["cs.CL"],
@@ -261,9 +284,14 @@ describe("crawl service", () => {
 
     const papers = await repository.list({});
     const pdfAnalyzed = papers.filter((paper) => paper.pdfAnalysisOverviewZh);
+    const pdfProgressLogs = (await createCrawlRepository(db).list())[0].logs.filter((log) => log.message === "Analyzed PDF detail.");
 
     expect(pdfAnalyzedSourceIds).toEqual(["2401.00012", "2401.00013"]);
     expect(pdfAnalyzed).toHaveLength(2);
+    expect(pdfProgressLogs.map((log) => log.details)).toEqual([
+      expect.objectContaining({ current: 1, total: 2, sourceId: "2401.00012" }),
+      expect.objectContaining({ current: 2, total: 2, sourceId: "2401.00013" })
+    ]);
     expect(pdfAnalyzed.map((paper) => paper.sourceId)).toEqual(["2401.00013", "2401.00012"]);
     expect(pdfAnalyzed[0]).toMatchObject({
       pdfAnalysisModel: "test-pdf-model",

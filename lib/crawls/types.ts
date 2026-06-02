@@ -1,11 +1,20 @@
 export type CrawlStatus = "running" | "completed" | "failed";
 
 export type CrawlLogLevel = "info" | "error";
+export type CrawlLogStage = "submitted" | "started" | "fetching" | "filtering" | "storing" | "homepage_analysis" | "pdf_analysis" | "completed" | "failed";
+
+export type CrawlLogProgress = {
+  current: number;
+  total: number;
+  label?: string;
+};
 
 export type CrawlLogEntry = {
   at: string;
   level: CrawlLogLevel;
   message: string;
+  stage?: CrawlLogStage;
+  progress?: CrawlLogProgress;
   details?: Record<string, unknown>;
 };
 

@@ -46,6 +46,8 @@ class CrawlRepository {
       at: entry.at ?? new Date().toISOString(),
       level: entry.level,
       message: entry.message,
+      ...(entry.stage ? { stage: entry.stage } : {}),
+      ...(entry.progress ? { progress: entry.progress } : {}),
       ...(entry.details ? { details: entry.details } : {})
     };
     const logs = [...run.logs, nextEntry];
@@ -149,6 +151,18 @@ function isCrawlLogEntry(value: unknown): value is CrawlLogEntry {
     typeof record.at === "string" &&
     (record.level === "info" || record.level === "error") &&
     typeof record.message === "string" &&
+    (record.stage === undefined || typeof record.stage === "string") &&
+    (record.progress === undefined || isCrawlLogProgress(record.progress)) &&
     (record.details === undefined || (record.details !== null && typeof record.details === "object" && !Array.isArray(record.details)))
+  );
+}
+
+function isCrawlLogProgress(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.current === "number" &&
+    typeof record.total === "number" &&
+    (record.label === undefined || typeof record.label === "string")
   );
 }

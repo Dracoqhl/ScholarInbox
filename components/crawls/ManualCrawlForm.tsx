@@ -17,6 +17,11 @@ type CrawlRunResponse = {
   };
 };
 
+type CrawlStreamEvent =
+  | { type: "log"; log: CrawlLogEntry }
+  | { type: "run"; run: CrawlRunResponse["run"] }
+  | { type: "error"; error: string };
+
 type DatePreset = "1" | "3" | "7" | "custom";
 
 export function ManualCrawlForm() {
@@ -66,33 +71,83 @@ export function ManualCrawlForm() {
         maxResults
       }
     }]);
-    const response = await fetch("/api/crawls/manual", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dateFrom,
-        dateTo,
-        categories: categories.split(",").map((item) => item.trim()).filter(Boolean),
-        maxResults
-      })
-    });
-    setIsRunning(false);
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "抓取失败");
-      setLogs((currentLogs) => [
-        ...currentLogs,
-        {
-          at: new Date().toISOString(),
-          level: "error",
-          message: data?.error ?? "Manual crawl request failed."
-        }
-      ]);
-      return;
+    try {
+      const response = await fetch("/api/crawls/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateFrom,
+          dateTo,
+          categories: categories.split(",").map((item) => item.trim()).filter(Boolean),
+          maxResults
+        })
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        const message = data?.error ?? "抓取失败";
+        setError(message);
+        appendClientLog("error", message);
+        return;
+      }
+      if (response.body && response.headers.get("content-type")?.includes("application/x-ndjson")) {
+        await readCrawlStream(response.body);
+      } else {
+        const data = (await response.json()) as CrawlRunResponse;
+        setResult(data.run);
+        setLogs(data.run.logs);
+      }
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : "抓取失败";
+      setError(message);
+      appendClientLog("error", message);
+    } finally {
+      setIsRunning(false);
     }
-    const data = (await response.json()) as CrawlRunResponse;
-    setResult(data.run);
-    setLogs(data.run.logs);
+  }
+
+  async function readCrawlStream(body: ReadableStream<Uint8Array>) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const readLine = (line: string) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line) as CrawlStreamEvent;
+      if (event.type === "log") {
+        setLogs((currentLogs) => [...currentLogs, event.log]);
+      } else if (event.type === "run") {
+        setResult(event.run);
+      } else if (event.type === "error") {
+        setError(event.error);
+        appendClientLog("error", event.error);
+      }
+    };
+
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        readLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) readLine(buffer);
+  }
+
+  function appendClientLog(level: CrawlLogEntry["level"], message: string) {
+    setLogs((currentLogs) => [
+      ...currentLogs,
+      {
+        at: new Date().toISOString(),
+        level,
+        message
+      }
+    ]);
   }
 
   async function copyLogs() {
@@ -101,6 +156,13 @@ export function ManualCrawlForm() {
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
+
+  const latestProgressLog = [...logs].reverse().find((log) => log.progress || log.stage);
+  const progressPercent = latestProgressLog?.progress && latestProgressLog.progress.total > 0
+    ? Math.min(100, Math.max(0, Math.round((latestProgressLog.progress.current / latestProgressLog.progress.total) * 100)))
+    : result?.status === "completed"
+      ? 100
+      : 0;
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-md border border-line bg-surface p-5">
@@ -136,6 +198,20 @@ export function ManualCrawlForm() {
         {isRunning ? "抓取中..." : "开始抓取"}
       </button>
       {error ? <p className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p> : null}
+      {logs.length ? (
+        <div className="rounded-md border border-line bg-background p-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium">当前阶段：{formatStage(latestProgressLog?.stage)}</span>
+            <span className="text-muted">{latestProgressLog?.progress?.label ?? latestProgressLog?.message ?? "等待日志"}</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-line/60">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <div className="mt-2 text-xs text-muted">
+            {latestProgressLog?.progress ? `${latestProgressLog.progress.current} / ${latestProgressLog.progress.total}` : `${progressPercent}%`}
+          </div>
+        </div>
+      ) : null}
       {result ? (
         <div className="grid gap-3 rounded-md border border-line bg-background p-4 text-sm sm:grid-cols-4">
           <span>状态：{result.status}</span>
@@ -158,7 +234,8 @@ export function ManualCrawlForm() {
               {logs.map((log, index) => (
                 <li key={`${log.at}-${index}`} className="font-mono leading-5">
                   <div className={log.level === "error" ? "text-danger" : "text-foreground"}>
-                    [{formatTime(log.at)}] {log.level.toUpperCase()} {log.message}
+                    [{formatTime(log.at)}] {log.level.toUpperCase()} {formatStage(log.stage)} {log.message}
+                    {log.progress ? ` (${log.progress.current}/${log.progress.total})` : ""}
                   </div>
                   {log.details ? <pre className="mt-1 whitespace-pre-wrap break-words text-muted">{JSON.stringify(log.details, null, 2)}</pre> : null}
                 </li>
@@ -188,7 +265,9 @@ function formatLogsForCopy(logs: CrawlLogEntry[], result: CrawlRunResponse["run"
     header,
     ...logs.map((log) => {
       const details = log.details ? ` ${JSON.stringify(log.details)}` : "";
-      return `[${log.at}] ${log.level.toUpperCase()} ${log.message}${details}`;
+      const stage = log.stage ? ` stage=${log.stage}` : "";
+      const progress = log.progress ? ` progress=${log.progress.current}/${log.progress.total}` : "";
+      return `[${log.at}] ${log.level.toUpperCase()}${stage}${progress} ${log.message}${details}`;
     })
   ].join("\n");
 }
@@ -200,4 +279,29 @@ function clampMaxResults(value: number): number {
 
 function formatTime(value: string): string {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatStage(stage: CrawlLogEntry["stage"]): string {
+  switch (stage) {
+    case "submitted":
+      return "已提交";
+    case "started":
+      return "初始化";
+    case "fetching":
+      return "抓取 arXiv";
+    case "filtering":
+      return "兴趣过滤";
+    case "storing":
+      return "入库";
+    case "homepage_analysis":
+      return "首页解析";
+    case "pdf_analysis":
+      return "PDF 精读";
+    case "completed":
+      return "完成";
+    case "failed":
+      return "失败";
+    default:
+      return "等待";
+  }
 }
