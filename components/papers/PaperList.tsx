@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, FileText, Search } from "lucide-react";
+import { ExternalLink, FileText, Github, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
@@ -128,6 +128,7 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
           >
             <option value="all">全部状态</option>
             <option value="new">新论文</option>
+            <option value="general">一般</option>
             <option value="interested">感兴趣</option>
             <option value="reading">阅读中</option>
             <option value="done">已读</option>
@@ -161,7 +162,21 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
                     {paper.title}
                   </Link>
                   <p className="mt-2 text-sm text-muted">{paper.authors.join(", ")}</p>
-                  <p className="mt-3 line-clamp-3 text-sm leading-6 text-primary/85">{paper.abstract}</p>
+                  {paper.analysisSummaryZh ? (
+                    <div className="mt-3 space-y-2 text-sm leading-6 text-primary/90">
+                      <p className="font-medium">{paper.analysisSummaryZh}</p>
+                      <p>
+                        <span className="text-muted">解决问题：</span>
+                        {paper.analysisProblemZh}
+                      </p>
+                      <p>
+                        <span className="text-muted">核心方法：</span>
+                        {paper.analysisMethodZh}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-3 line-clamp-3 text-sm leading-6 text-primary/85">{paper.abstract}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <StatusSelect value={paper.status} disabled={pendingId === paper.id} onChange={(next) => void updateStatus(paper, next)} />
@@ -187,6 +202,18 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
                   <FileText className="h-4 w-4" />
                   PDF
                 </a>
+                {paper.githubUrls.map((url) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
+                  >
+                    <Github className="h-4 w-4" />
+                    GitHub
+                  </a>
+                ))}
               </div>
             </article>
           ))}

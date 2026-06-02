@@ -7,6 +7,9 @@ import type { InterestFilterResult } from "@/lib/filtering/types";
 import { getResearchInterestProfile } from "@/lib/user-preferences/research-interest";
 import { fetchArxivPapers } from "@/lib/sources/arxiv";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
+import { analyzePapersWithLlm, type PaperAnalysisWithSourceId } from "@/lib/paper-analysis/llm-analysis";
+
+const PAPER_ANALYSIS_TRIAL_LIMIT = 1;
 
 export async function crawlArxivDateRange(input: {
   db: SqliteDatabase;
@@ -16,6 +19,7 @@ export async function crawlArxivDateRange(input: {
   maxResults?: number;
   fetchPapers?: PaperSourceFetcher;
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
+  analyzePapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>) => Promise<PaperAnalysisWithSourceId[]>;
 }): Promise<CrawlRun> {
   const crawlRepository = createCrawlRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
@@ -75,14 +79,18 @@ export async function crawlArxivDateRange(input: {
     const filterResultsBySourceId = new Map(filterResults.map((result) => [result.sourceId, result]));
     let rawInsertedCount = 0;
     let effectiveInsertedCount = 0;
+    const analysisCandidates: Array<{ paperId: string; paper: Awaited<ReturnType<PaperSourceFetcher>>[number] }> = [];
 
     for (const paper of papers) {
       const result = await paperRepository.upsert(paper);
       if (result.inserted) rawInsertedCount += 1;
       const filterResult = filterResultsBySourceId.get(paper.sourceId);
       if (filterResult) {
-        await paperRepository.setFilterResult(result.paper.id, filterResult);
+        const updatedPaper = await paperRepository.setFilterResult(result.paper.id, filterResult);
         if (result.inserted && filterResult.matched) effectiveInsertedCount += 1;
+        if (filterResult.matched && !updatedPaper?.analysisSummaryZh && analysisCandidates.length < PAPER_ANALYSIS_TRIAL_LIMIT) {
+          analysisCandidates.push({ paperId: result.paper.id, paper });
+        }
       }
     }
     await crawlRepository.appendLog(run.id, {
@@ -95,6 +103,27 @@ export async function crawlArxivDateRange(input: {
         duplicateCount: filter.cachedCount
       }
     });
+    if (analysisCandidates.length) {
+      const analyses = await (input.analyzePapers ?? analyzePapersWithLlm)(analysisCandidates.map((candidate) => candidate.paper));
+      const analysisBySourceId = new Map(analyses.map((analysis) => [analysis.sourceId, analysis]));
+      let analyzedCount = 0;
+      for (const candidate of analysisCandidates) {
+        const analysis = analysisBySourceId.get(candidate.paper.sourceId);
+        if (!analysis) continue;
+        await paperRepository.setAnalysisResult(candidate.paperId, analysis);
+        analyzedCount += 1;
+      }
+      if (analyzedCount > 0) {
+        await crawlRepository.appendLog(run.id, {
+          level: "info",
+          message: "Generated Chinese paper analysis.",
+          details: {
+            analyzedCount,
+            trialLimit: PAPER_ANALYSIS_TRIAL_LIMIT
+          }
+        });
+      }
+    }
     await crawlRepository.appendLog(run.id, {
       level: "info",
       message: "Completed crawl.",

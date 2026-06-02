@@ -15,6 +15,14 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       updated_at TEXT,
       source_url TEXT NOT NULL,
       pdf_url TEXT NOT NULL,
+      analysis_summary_zh TEXT,
+      analysis_problem_zh TEXT,
+      analysis_method_zh TEXT,
+      analysis_contribution_zh TEXT,
+      analysis_detail_zh TEXT,
+      analysis_model TEXT,
+      analysis_checked_at TEXT,
+      analysis_error TEXT,
       created_at TEXT NOT NULL,
       updated_record_at TEXT NOT NULL,
       UNIQUE(source, source_id)
@@ -22,7 +30,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -55,7 +63,9 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at ON crawl_runs(started_at);
   `);
   ensurePaperStatesSupportsIrrelevant(db);
+  ensurePaperStatesSupportsGeneral(db);
   ensurePaperFilterColumns(db);
+  ensurePaperAnalysisColumns(db);
   ensureCrawlRunLogColumn(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
@@ -78,7 +88,25 @@ function ensurePaperStatesSupportsIrrelevant(db: SqliteDatabase): void {
     ALTER TABLE paper_states RENAME TO paper_states_old;
     CREATE TABLE paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      is_favorite INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO paper_states (paper_id, status, is_favorite, updated_at)
+    SELECT paper_id, status, is_favorite, updated_at FROM paper_states_old;
+    DROP TABLE paper_states_old;
+  `);
+}
+
+function ensurePaperStatesSupportsGeneral(db: SqliteDatabase): void {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_states'").get<{ sql: string }>();
+  if (!table || table.sql.includes("'general'")) return;
+
+  db.exec(`
+    ALTER TABLE paper_states RENAME TO paper_states_old;
+    CREATE TABLE paper_states (
+      paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -97,6 +125,24 @@ function ensurePaperFilterColumns(db: SqliteDatabase): void {
     ["filter_profile_hash", "TEXT"],
     ["filter_checked_at", "TEXT"],
     ["filter_error", "TEXT"]
+  ].filter(([name]) => !columns.has(name));
+
+  for (const [name, type] of missingColumns) {
+    db.exec(`ALTER TABLE papers ADD COLUMN ${name} ${type};`);
+  }
+}
+
+function ensurePaperAnalysisColumns(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(papers);").all<{ name: string }>().map((column) => column.name));
+  const missingColumns = [
+    ["analysis_summary_zh", "TEXT"],
+    ["analysis_problem_zh", "TEXT"],
+    ["analysis_method_zh", "TEXT"],
+    ["analysis_contribution_zh", "TEXT"],
+    ["analysis_detail_zh", "TEXT"],
+    ["analysis_model", "TEXT"],
+    ["analysis_checked_at", "TEXT"],
+    ["analysis_error", "TEXT"]
   ].filter(([name]) => !columns.has(name));
 
   for (const [name, type] of missingColumns) {

@@ -1,4 +1,4 @@
-export type PaperStatus = "new" | "interested" | "reading" | "done" | "archived" | "irrelevant";
+export type PaperStatus = "new" | "general" | "interested" | "reading" | "done" | "archived" | "irrelevant";
 export type PaperFilterMethod = "llm" | "prefilter";
 
 export type PaperInput = {
@@ -25,6 +25,15 @@ export type Paper = PaperInput & {
   filterProfileHash: string | null;
   filterCheckedAt: string | null;
   filterError: string | null;
+  analysisSummaryZh: string | null;
+  analysisProblemZh: string | null;
+  analysisMethodZh: string | null;
+  analysisContributionZh: string | null;
+  analysisDetailZh: string | null;
+  analysisModel: string | null;
+  analysisCheckedAt: string | null;
+  analysisError: string | null;
+  githubUrls: string[];
   createdAt: string;
   updatedRecordAt: string;
 };
@@ -50,6 +59,17 @@ export type PaperFilterResult = {
   error: string | null;
 };
 
+export type PaperAnalysisResult = {
+  summaryZh: string;
+  problemZh: string;
+  methodZh: string;
+  contributionZh: string;
+  detailZh: string;
+  model: string;
+  checkedAt: string;
+  error: string | null;
+};
+
 export type PaperRow = {
   id: string;
   source: string;
@@ -69,6 +89,14 @@ export type PaperRow = {
   filter_profile_hash: string | null;
   filter_checked_at: string | null;
   filter_error: string | null;
+  analysis_summary_zh: string | null;
+  analysis_problem_zh: string | null;
+  analysis_method_zh: string | null;
+  analysis_contribution_zh: string | null;
+  analysis_detail_zh: string | null;
+  analysis_model: string | null;
+  analysis_checked_at: string | null;
+  analysis_error: string | null;
   created_at: string;
   updated_record_at: string;
   status: PaperStatus | null;

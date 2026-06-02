@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
-import type { Paper, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
+import { extractGithubUrls } from "@/lib/papers/github-links";
+import type { Paper, PaperAnalysisResult, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
 
 export function createPaperRepository(db: SqliteDatabase) {
   return new PaperRepository(db);
@@ -186,6 +187,36 @@ class PaperRepository {
     return this.get(id);
   }
 
+  async setAnalysisResult(id: string, result: PaperAnalysisResult): Promise<Paper | null> {
+    this.db
+      .prepare(
+        `UPDATE papers
+         SET analysis_summary_zh = @summaryZh,
+             analysis_problem_zh = @problemZh,
+             analysis_method_zh = @methodZh,
+             analysis_contribution_zh = @contributionZh,
+             analysis_detail_zh = @detailZh,
+             analysis_model = @model,
+             analysis_checked_at = @checkedAt,
+             analysis_error = @error,
+             updated_record_at = @updatedRecordAt
+         WHERE id = @id`
+      )
+      .run({
+        id,
+        summaryZh: result.summaryZh,
+        problemZh: result.problemZh,
+        methodZh: result.methodZh,
+        contributionZh: result.contributionZh,
+        detailZh: result.detailZh,
+        model: result.model,
+        checkedAt: result.checkedAt,
+        error: result.error,
+        updatedRecordAt: new Date().toISOString()
+      });
+    return this.get(id);
+  }
+
   async setFavorite(id: string, isFavorite: boolean): Promise<Paper | null> {
     this.db
       .prepare("UPDATE paper_states SET is_favorite = @isFavorite, updated_at = @updatedAt WHERE paper_id = @id")
@@ -259,6 +290,15 @@ function mapPaper(row: PaperRow): Paper {
     filterProfileHash: row.filter_profile_hash,
     filterCheckedAt: row.filter_checked_at,
     filterError: row.filter_error,
+    analysisSummaryZh: row.analysis_summary_zh,
+    analysisProblemZh: row.analysis_problem_zh,
+    analysisMethodZh: row.analysis_method_zh,
+    analysisContributionZh: row.analysis_contribution_zh,
+    analysisDetailZh: row.analysis_detail_zh,
+    analysisModel: row.analysis_model,
+    analysisCheckedAt: row.analysis_checked_at,
+    analysisError: row.analysis_error,
+    githubUrls: extractGithubUrls(row.abstract),
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
   };

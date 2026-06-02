@@ -42,7 +42,8 @@ describe("crawl service", () => {
         profileHash: "test-profile",
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
-      }))
+      })),
+      analyzePapers: async () => []
     });
 
     const papers = await createPaperRepository(db).list({});
@@ -81,7 +82,8 @@ describe("crawl service", () => {
         profileHash: "test-profile",
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
-      }))
+      })),
+      analyzePapers: async () => []
     });
     const [storedRun] = await createCrawlRepository(db).list();
 
@@ -121,8 +123,8 @@ describe("crawl service", () => {
       return filterPapers(papers, options);
     };
 
-    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers });
-    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers });
+    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [] });
+    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers, analyzePapers: async () => [] });
 
     expect(filterCallCount).toBe(1);
     expect(second.insertedCount).toBe(0);
@@ -143,14 +145,15 @@ describe("crawl service", () => {
       dateTo: "2024-01-01",
       fetchPapers: async () => [makePaperInput("2401.00007"), makePaperInput("2401.00008")],
       filterPapers: async (papers) => papers.map((paper) => ({
-      sourceId: paper.sourceId,
-      matched: paper.sourceId === "2401.00007",
-      score: paper.sourceId === "2401.00007" ? 0.9 : 0.2,
-      method: "llm" as const,
-      profileHash: "test-profile",
-      checkedAt: "2026-06-02T00:00:00.000Z",
-      error: null
-      }))
+        sourceId: paper.sourceId,
+        matched: paper.sourceId === "2401.00007",
+        score: paper.sourceId === "2401.00007" ? 0.9 : 0.2,
+        method: "llm" as const,
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      })),
+      analyzePapers: async () => []
     });
 
     expect(result.fetchedCount).toBe(2);
@@ -160,6 +163,53 @@ describe("crawl service", () => {
       rawInsertedCount: 2,
       effectiveInsertedCount: 1,
       storedUnmatchedCount: 1
+    });
+  });
+
+  it("analyzes only one matched paper during the trial rollout", async () => {
+    const db = getDatabase(databasePath);
+    const analyzedSourceIds: string[] = [];
+
+    await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => [makePaperInput("2401.00009"), makePaperInput("2401.00010"), makePaperInput("2401.00011")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+        sourceId: paper.sourceId,
+        matched: paper.sourceId !== "2401.00011",
+        score: paper.sourceId !== "2401.00011" ? 0.9 : 0.2,
+        method: "llm",
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      })),
+      analyzePapers: async (papers) => {
+        analyzedSourceIds.push(...papers.map((paper) => paper.sourceId));
+        return papers.map((paper) => ({
+          sourceId: paper.sourceId,
+          summaryZh: `中文概括 ${paper.sourceId}`,
+          problemZh: "它要解决复杂推理任务中的训练信号不足问题。",
+          methodZh: "它通过构造轨迹奖励来改进语言模型推理。",
+          contributionZh: "主要贡献是把过程监督和结果奖励结合起来。",
+          detailZh: "这篇论文的完整解析会解释问题背景、方法流程、实验结论和局限。",
+          model: "test-analysis-model",
+          checkedAt: "2026-06-02T00:00:00.000Z",
+          error: null
+        }));
+      }
+    });
+
+    const papers = await createPaperRepository(db).list({});
+    const analyzed = papers.filter((paper) => paper.analysisSummaryZh);
+
+    expect(analyzedSourceIds).toEqual(["2401.00009"]);
+    expect(analyzed).toHaveLength(1);
+    expect(analyzed[0]).toMatchObject({
+      sourceId: "2401.00009",
+      analysisSummaryZh: "中文概括 2401.00009",
+      analysisModel: "test-analysis-model"
     });
   });
 
@@ -180,7 +230,8 @@ describe("crawl service", () => {
         profileHash: "test-profile",
         checkedAt: "2026-06-02T00:00:00.000Z",
         error: null
-      }))
+      })),
+      analyzePapers: async () => []
     });
 
     const repository = createPaperRepository(db);

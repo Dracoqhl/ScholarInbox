@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, FileText } from "lucide-react";
+import { ExternalLink, FileText, Github } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
@@ -79,7 +79,40 @@ export function PaperDetail({ id }: { id: string }) {
           <FavoriteButton isFavorite={paper.isFavorite} disabled={isSaving} onClick={() => void patchFavorite()} />
         </div>
       </div>
-      <p className="mt-6 max-w-4xl whitespace-pre-wrap text-sm leading-7 text-primary/90">{paper.abstract}</p>
+      {paper.analysisSummaryZh ? (
+        <div className="mt-6 max-w-4xl space-y-5">
+          <section className="rounded-md border border-line bg-background p-4">
+            <h3 className="text-sm font-semibold">一句话概括</h3>
+            <p className="mt-2 text-sm leading-7 text-primary/90">{paper.analysisSummaryZh}</p>
+          </section>
+          <section className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-md border border-line bg-background p-4">
+              <h3 className="text-sm font-semibold">解决什么问题</h3>
+              <p className="mt-2 text-sm leading-7 text-primary/90">{paper.analysisProblemZh}</p>
+            </div>
+            <div className="rounded-md border border-line bg-background p-4">
+              <h3 className="text-sm font-semibold">核心方法</h3>
+              <p className="mt-2 text-sm leading-7 text-primary/90">{paper.analysisMethodZh}</p>
+            </div>
+          </section>
+          <section className="rounded-md border border-line bg-background p-4">
+            <h3 className="text-sm font-semibold">主要贡献</h3>
+            <p className="mt-2 text-sm leading-7 text-primary/90">{paper.analysisContributionZh}</p>
+          </section>
+          <section className="rounded-md border border-line bg-background p-4">
+            <h3 className="text-sm font-semibold">详细理解</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{paper.analysisDetailZh}</p>
+          </section>
+        </div>
+      ) : (
+        <div className="mt-6 rounded-md border border-line bg-background p-4 text-sm text-muted">
+          这篇论文还没有中文解析。当前测试阶段只会在每轮抓取后解析 1 篇匹配论文。
+        </div>
+      )}
+      <section className="mt-6 max-w-4xl rounded-md border border-line bg-background p-4">
+        <h3 className="text-sm font-semibold">原始摘要</h3>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{paper.abstract}</p>
+      </section>
       <div className="mt-6 flex flex-wrap gap-2">
         <a href={paper.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-surface">
           <ExternalLink className="h-4 w-4" />
@@ -89,6 +122,12 @@ export function PaperDetail({ id }: { id: string }) {
           <FileText className="h-4 w-4" />
           PDF
         </a>
+        {paper.githubUrls.map((url) => (
+          <a href={url} key={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-muted hover:border-accent hover:text-accent">
+            <Github className="h-4 w-4" />
+            GitHub
+          </a>
+        ))}
       </div>
     </article>
   );

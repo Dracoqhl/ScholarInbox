@@ -61,6 +61,15 @@ describe("paper repository", () => {
     expect((await repository.get(paper.id))?.status).toBe("irrelevant");
   });
 
+  it("persists papers marked as generally understood", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00120" }));
+
+    await repository.setStatus(paper.id, "general");
+
+    expect((await repository.get(paper.id))?.status).toBe("general");
+  });
+
   it("can list only favorited papers", async () => {
     const repository = createPaperRepository(getDatabase(databasePath));
     const first = await repository.upsert(makePaperInput({ sourceId: "2401.00003", title: "Favorite" }));
