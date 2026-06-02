@@ -39,7 +39,8 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       duplicate_count INTEGER NOT NULL,
       error_message TEXT,
       started_at TEXT NOT NULL,
-      finished_at TEXT
+      finished_at TEXT,
+      log_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -55,10 +56,18 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
   `);
   ensurePaperStatesSupportsIrrelevant(db);
   ensurePaperFilterColumns(db);
+  ensureCrawlRunLogColumn(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
     CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
   `);
+}
+
+function ensureCrawlRunLogColumn(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(crawl_runs);").all<{ name: string }>().map((column) => column.name));
+  if (!columns.has("log_json")) {
+    db.exec("ALTER TABLE crawl_runs ADD COLUMN log_json TEXT;");
+  }
 }
 
 function ensurePaperStatesSupportsIrrelevant(db: SqliteDatabase): void {

@@ -26,10 +26,26 @@ export async function crawlArxivDateRange(input: {
   });
 
   try {
+    await crawlRepository.appendLog(run.id, {
+      level: "info",
+      message: "Started manual arXiv crawl.",
+      details: {
+        categories: input.categories,
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo
+      }
+    });
     const papers = await (input.fetchPapers ?? fetchArxivPapers)({
       categories: input.categories,
       dateFrom: input.dateFrom,
       dateTo: input.dateTo
+    });
+    await crawlRepository.appendLog(run.id, {
+      level: "info",
+      message: "Fetched papers from arXiv.",
+      details: {
+        count: papers.length
+      }
     });
     const interestProfile = getResearchInterestProfile();
     const profileHash = getInterestProfileHash(interestProfile);
@@ -39,6 +55,16 @@ export async function crawlArxivDateRange(input: {
       interestProfile,
       paperRepository,
       filterPapers: input.filterPapers
+    });
+    const matchedCount = filterResults.filter((result) => result.matched).length;
+    await crawlRepository.appendLog(run.id, {
+      level: "info",
+      message: "Filtered papers by interest profile.",
+      details: {
+        checkedCount: filterResults.length,
+        matchedCount,
+        unmatchedCount: filterResults.length - matchedCount
+      }
     });
     const filterResultsBySourceId = new Map(filterResults.map((result) => [result.sourceId, result]));
     let insertedCount = 0;
@@ -51,6 +77,23 @@ export async function crawlArxivDateRange(input: {
         await paperRepository.setFilterResult(result.paper.id, filterResult);
       }
     }
+    await crawlRepository.appendLog(run.id, {
+      level: "info",
+      message: "Stored papers and filter results.",
+      details: {
+        insertedCount,
+        duplicateCount: papers.length - insertedCount
+      }
+    });
+    await crawlRepository.appendLog(run.id, {
+      level: "info",
+      message: "Completed crawl.",
+      details: {
+        fetchedCount: papers.length,
+        insertedCount,
+        duplicateCount: papers.length - insertedCount
+      }
+    });
 
     return crawlRepository.finish(run.id, {
       status: "completed",
@@ -59,6 +102,13 @@ export async function crawlArxivDateRange(input: {
       duplicateCount: papers.length - insertedCount
     });
   } catch (error) {
+    await crawlRepository.appendLog(run.id, {
+      level: "error",
+      message: "Crawl failed.",
+      details: {
+        error: error instanceof Error ? error.message : "Unknown crawl error"
+      }
+    });
     return crawlRepository.finish(run.id, {
       status: "failed",
       fetchedCount: 0,

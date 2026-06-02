@@ -1,5 +1,14 @@
 export type CrawlStatus = "running" | "completed" | "failed";
 
+export type CrawlLogLevel = "info" | "error";
+
+export type CrawlLogEntry = {
+  at: string;
+  level: CrawlLogLevel;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
 export type CrawlRun = {
   id: string;
   source: string;
@@ -13,6 +22,7 @@ export type CrawlRun = {
   errorMessage: string | null;
   startedAt: string;
   finishedAt: string | null;
+  logs: CrawlLogEntry[];
 };
 
 export type CrawlRunRow = {
@@ -28,4 +38,5 @@ export type CrawlRunRow = {
   error_message: string | null;
   started_at: string;
   finished_at: string | null;
+  log_json?: string | null;
 };

@@ -64,6 +64,45 @@ describe("crawl service", () => {
     });
   });
 
+  it("records crawl logs for debugging", async () => {
+    const db = getDatabase(databasePath);
+
+    const result = await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => [makePaperInput("2401.00006")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+        sourceId: paper.sourceId,
+        matched: true,
+        score: 0.91,
+        method: "llm",
+        profileHash: "test-profile",
+        checkedAt: "2026-06-02T00:00:00.000Z",
+        error: null
+      }))
+    });
+    const [storedRun] = await createCrawlRepository(db).list();
+
+    expect(result.logs.map((log) => log.level)).toEqual(["info", "info", "info", "info", "info"]);
+    expect(result.logs.map((log) => log.message)).toEqual([
+      "Started manual arXiv crawl.",
+      "Fetched papers from arXiv.",
+      "Filtered papers by interest profile.",
+      "Stored papers and filter results.",
+      "Completed crawl."
+    ]);
+    expect(result.logs[0]).toMatchObject({
+      details: {
+        categories: ["cs.CL"],
+        dateFrom: "2024-01-01",
+        dateTo: "2024-01-01"
+      }
+    });
+    expect(storedRun.logs).toEqual(result.logs);
+  });
+
   it("counts duplicates when the same range is crawled twice", async () => {
     const db = getDatabase(databasePath);
     const fetchPapers = async () => [makePaperInput("2401.00003")];
