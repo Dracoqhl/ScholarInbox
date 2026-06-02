@@ -6,12 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { StatusSelect } from "@/components/ui/StatusSelect";
+import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
 
 export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<PaperStatus | "all">("all");
+  const [sortMode, setSortMode] = useState<PaperSortMode>("date");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -24,6 +26,9 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     if (status !== "all") params.set("status", status);
     return `/api/papers${params.toString() ? `?${params}` : ""}`;
   }, [favoriteOnly, query, status]);
+
+  const sortedPapers = useMemo(() => sortPapersForList(papers, sortMode), [papers, sortMode]);
+  const dateGroups = useMemo(() => groupPapersByPublishedDate(sortedPapers), [sortedPapers]);
 
   const loadPapers = useCallback(async () => {
     setIsLoading(true);
@@ -135,6 +140,15 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
             <option value="archived">归档</option>
             <option value="irrelevant">方向无关</option>
           </select>
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as PaperSortMode)}
+            className="h-10 rounded-md border border-line bg-background px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            aria-label="排序方式"
+          >
+            <option value="date">按日期</option>
+            <option value="score">按相关分数</option>
+          </select>
         </div>
       </div>
 
@@ -142,80 +156,43 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
 
       {isLoading ? (
         <div className="rounded-md border border-line bg-surface p-6 text-sm text-muted">正在加载论文...</div>
-      ) : papers.length === 0 ? (
+      ) : sortedPapers.length === 0 ? (
         <div className="rounded-md border border-line bg-surface p-6">
           <h3 className="font-medium">还没有可显示的论文</h3>
           <p className="mt-2 text-sm text-muted">先确认 AI 配置可用，再到抓取页面运行一次 arXiv 抓取。</p>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {papers.map((paper) => (
-            <article key={paper.id} className="rounded-md border border-line bg-surface p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap gap-2 text-xs text-muted">
-                    <span>{formatDate(paper.publishedAt)}</span>
-                    <span>{paper.primaryCategory}</span>
-                    <span>{paper.categories.join(", ")}</span>
-                  </div>
-                  <Link href={`/papers/${paper.id}`} className="mt-2 block text-base font-semibold leading-6 hover:text-accent">
-                    {paper.title}
-                  </Link>
-                  <p className="mt-2 text-sm text-muted">{paper.authors.join(", ")}</p>
-                  {paper.analysisSummaryZh ? (
-                    <div className="mt-3 space-y-2 text-sm leading-6 text-primary/90">
-                      <p className="font-medium">{paper.analysisSummaryZh}</p>
-                      <p>
-                        <span className="text-muted">解决问题：</span>
-                        {paper.analysisProblemZh}
-                      </p>
-                      <p>
-                        <span className="text-muted">核心方法：</span>
-                        {paper.analysisMethodZh}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="mt-3 line-clamp-3 text-sm leading-6 text-primary/85">{paper.abstract}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <StatusSelect value={paper.status} disabled={pendingId === paper.id} onChange={(next) => void updateStatus(paper, next)} />
-                  <FavoriteButton isFavorite={paper.isFavorite} disabled={pendingId === paper.id} onClick={() => void updateFavorite(paper)} />
-                </div>
+      ) : sortMode === "date" ? (
+        <div className="space-y-6">
+          {dateGroups.map((group) => (
+            <section key={group.date} className="space-y-3">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-background/95 py-2 backdrop-blur">
+                <h3 className="text-sm font-semibold text-primary">{formatDate(group.date)}</h3>
+                <span className="text-xs text-muted">{group.papers.length} 篇</span>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <a
-                  href={paper.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  arXiv
-                </a>
-                <a
-                  href={paper.pdfUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
-                >
-                  <FileText className="h-4 w-4" />
-                  PDF
-                </a>
-                {paper.githubUrls.map((url) => (
-                  <a
-                    key={url}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
-                  >
-                    <Github className="h-4 w-4" />
-                    GitHub
-                  </a>
+              <div className="space-y-3">
+                {group.papers.map((paper) => (
+                  <PaperCard
+                    key={paper.id}
+                    paper={paper}
+                    pendingId={pendingId}
+                    updateStatus={updateStatus}
+                    updateFavorite={updateFavorite}
+                  />
                 ))}
               </div>
-            </article>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sortedPapers.map((paper) => (
+            <PaperCard
+              key={paper.id}
+              paper={paper}
+              pendingId={pendingId}
+              updateStatus={updateStatus}
+              updateFavorite={updateFavorite}
+            />
           ))}
         </div>
       )}
@@ -225,4 +202,91 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+}
+
+function PaperCard({
+  paper,
+  pendingId,
+  updateStatus,
+  updateFavorite
+}: {
+  paper: Paper;
+  pendingId: string | null;
+  updateStatus: (paper: Paper, nextStatus: PaperStatus) => Promise<void>;
+  updateFavorite: (paper: Paper) => Promise<void>;
+}) {
+  return (
+    <article className="rounded-md border border-line bg-surface p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span>{formatDate(paper.publishedAt)}</span>
+            <span>{paper.primaryCategory}</span>
+            <span>{paper.categories.join(", ")}</span>
+            <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent">
+              相关分数 {formatScore(paper.filterScore)}
+            </span>
+          </div>
+          <Link href={`/papers/${paper.id}`} className="mt-2 block text-base font-semibold leading-6 hover:text-accent">
+            {paper.title}
+          </Link>
+          {paper.analysisSummaryZh ? (
+            <div className="mt-3 space-y-2 text-sm leading-6 text-primary/90">
+              <p className="font-medium">{paper.analysisSummaryZh}</p>
+              <p>
+                <span className="text-muted">解决问题：</span>
+                {paper.analysisProblemZh}
+              </p>
+              <p>
+                <span className="text-muted">核心方法：</span>
+                {paper.analysisMethodZh}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 line-clamp-3 text-sm leading-6 text-primary/85">{paper.abstract}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <StatusSelect value={paper.status} disabled={pendingId === paper.id} onChange={(next) => void updateStatus(paper, next)} />
+          <FavoriteButton isFavorite={paper.isFavorite} disabled={pendingId === paper.id} onClick={() => void updateFavorite(paper)} />
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <a
+          href={paper.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
+        >
+          <ExternalLink className="h-4 w-4" />
+          arXiv
+        </a>
+        <a
+          href={paper.pdfUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
+        >
+          <FileText className="h-4 w-4" />
+          PDF
+        </a>
+        {paper.githubUrls.map((url) => (
+          <a
+            key={url}
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
+          >
+            <Github className="h-4 w-4" />
+            GitHub
+          </a>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function formatScore(value: number | null): string {
+  return typeof value === "number" ? value.toFixed(2) : "未评分";
 }
