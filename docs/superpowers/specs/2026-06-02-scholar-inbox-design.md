@@ -122,14 +122,13 @@ Favorite state is independent from reading status. A paper may be `done` and fav
 
 ## Single-Paper Analysis
 
-During early testing, ScholarInbox should not batch-analyze papers.
+During early testing, ScholarInbox did not batch-analyze papers. The current workflow now analyzes every matched paper for homepage display and keeps PDF deep analysis as a per-paper detail-page action.
 
 Requirements:
 
-- Add one detail-page action to parse/analyze a single paper.
-- Keep batch parsing disabled by default.
-- Complete parsing for only one selected paper during debugging.
-- Store the analysis result for later display.
+- Generate homepage Chinese analysis for every matched paper that does not already have analysis.
+- Add one detail-page action to parse/analyze a single paper PDF.
+- Store both analysis result types for later display.
 
 The exact analysis prompt and output structure will be refined after the ingestion and filtering loop works.
 

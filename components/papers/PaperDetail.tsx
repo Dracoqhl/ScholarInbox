@@ -168,7 +168,7 @@ export function PaperDetail({ id }: { id: string }) {
         </div>
       ) : (
         <div className="mt-6 rounded-md border border-line bg-background p-4 text-sm text-muted">
-          这篇论文还没有中文解析。当前测试阶段只会在每轮抓取后解析 1 篇匹配论文。
+          这篇论文还没有中文解析。新抓取的匹配论文会自动生成摘要级中文解析，也可以先生成 PDF 精读解析。
         </div>
       )}
       <section className="mt-6 max-w-4xl rounded-md border border-line bg-background p-4">

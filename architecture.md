@@ -164,9 +164,9 @@ Owns interest profile matching.
 
 Owns single-paper parsing and analysis.
 
-- Batch analysis stays disabled until explicitly requested.
-- Early testing should parse only one selected paper.
-- Analysis output structure will be refined after the ingestion loop works.
+- Crawl-time homepage analysis runs for every matched paper that does not already have Chinese analysis.
+- Detail-page PDF deep analysis is triggered per paper and stores a richer reading guide.
+- Analysis output structure can continue to be refined from user reading feedback.
 
 ### `lib/settings/`
 

@@ -166,7 +166,7 @@ describe("crawl service", () => {
     });
   });
 
-  it("analyzes only one matched paper during the trial rollout", async () => {
+  it("analyzes every matched paper that does not already have Chinese analysis", async () => {
     const db = getDatabase(databasePath);
     const analyzedSourceIds: string[] = [];
 
@@ -204,11 +204,10 @@ describe("crawl service", () => {
     const papers = await createPaperRepository(db).list({});
     const analyzed = papers.filter((paper) => paper.analysisSummaryZh);
 
-    expect(analyzedSourceIds).toEqual(["2401.00009"]);
-    expect(analyzed).toHaveLength(1);
+    expect(analyzedSourceIds).toEqual(["2401.00009", "2401.00010"]);
+    expect(analyzed).toHaveLength(2);
+    expect(analyzed.map((paper) => paper.sourceId)).toEqual(["2401.00010", "2401.00009"]);
     expect(analyzed[0]).toMatchObject({
-      sourceId: "2401.00009",
-      analysisSummaryZh: "中文概括 2401.00009",
       analysisModel: "test-analysis-model"
     });
   });

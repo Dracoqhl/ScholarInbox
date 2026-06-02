@@ -9,8 +9,6 @@ import { fetchArxivPapers } from "@/lib/sources/arxiv";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
 import { analyzePapersWithLlm, type PaperAnalysisWithSourceId } from "@/lib/paper-analysis/llm-analysis";
 
-const PAPER_ANALYSIS_TRIAL_LIMIT = 1;
-
 export async function crawlArxivDateRange(input: {
   db: SqliteDatabase;
   categories: string[];
@@ -88,7 +86,7 @@ export async function crawlArxivDateRange(input: {
       if (filterResult) {
         const updatedPaper = await paperRepository.setFilterResult(result.paper.id, filterResult);
         if (result.inserted && filterResult.matched) effectiveInsertedCount += 1;
-        if (filterResult.matched && !updatedPaper?.analysisSummaryZh && analysisCandidates.length < PAPER_ANALYSIS_TRIAL_LIMIT) {
+        if (filterResult.matched && !updatedPaper?.analysisSummaryZh) {
           analysisCandidates.push({ paperId: result.paper.id, paper });
         }
       }
@@ -119,7 +117,7 @@ export async function crawlArxivDateRange(input: {
           message: "Generated Chinese paper analysis.",
           details: {
             analyzedCount,
-            trialLimit: PAPER_ANALYSIS_TRIAL_LIMIT
+            candidateCount: analysisCandidates.length
           }
         });
       }
