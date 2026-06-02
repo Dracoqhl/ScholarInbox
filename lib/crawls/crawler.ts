@@ -13,6 +13,7 @@ export async function crawlArxivDateRange(input: {
   categories: string[];
   dateFrom: string;
   dateTo: string;
+  maxResults?: number;
   fetchPapers?: PaperSourceFetcher;
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
 }): Promise<CrawlRun> {
@@ -32,13 +33,15 @@ export async function crawlArxivDateRange(input: {
       details: {
         categories: input.categories,
         dateFrom: input.dateFrom,
-        dateTo: input.dateTo
+        dateTo: input.dateTo,
+        maxResults: input.maxResults
       }
     });
     const papers = await (input.fetchPapers ?? fetchArxivPapers)({
       categories: input.categories,
       dateFrom: input.dateFrom,
-      dateTo: input.dateTo
+      dateTo: input.dateTo,
+      maxResults: input.maxResults
     });
     await crawlRepository.appendLog(run.id, {
       level: "info",
@@ -49,40 +52,47 @@ export async function crawlArxivDateRange(input: {
     });
     const interestProfile = getResearchInterestProfile();
     const profileHash = getInterestProfileHash(interestProfile);
-    const filterResults = await getFilterResults({
+    const filter = await getFilterResults({
       papers,
       profileHash,
       interestProfile,
       paperRepository,
       filterPapers: input.filterPapers
     });
+    const filterResults = filter.results;
     const matchedCount = filterResults.filter((result) => result.matched).length;
     await crawlRepository.appendLog(run.id, {
       level: "info",
       message: "Filtered papers by interest profile.",
       details: {
         checkedCount: filterResults.length,
+        cachedFilterCount: filter.cachedCount,
+        freshFilterCount: filter.freshCount,
         matchedCount,
         unmatchedCount: filterResults.length - matchedCount
       }
     });
     const filterResultsBySourceId = new Map(filterResults.map((result) => [result.sourceId, result]));
-    let insertedCount = 0;
+    let rawInsertedCount = 0;
+    let effectiveInsertedCount = 0;
 
     for (const paper of papers) {
       const result = await paperRepository.upsert(paper);
-      if (result.inserted) insertedCount += 1;
+      if (result.inserted) rawInsertedCount += 1;
       const filterResult = filterResultsBySourceId.get(paper.sourceId);
       if (filterResult) {
         await paperRepository.setFilterResult(result.paper.id, filterResult);
+        if (result.inserted && filterResult.matched) effectiveInsertedCount += 1;
       }
     }
     await crawlRepository.appendLog(run.id, {
       level: "info",
       message: "Stored papers and filter results.",
       details: {
-        insertedCount,
-        duplicateCount: papers.length - insertedCount
+        rawInsertedCount,
+        effectiveInsertedCount,
+        storedUnmatchedCount: rawInsertedCount - effectiveInsertedCount,
+        duplicateCount: filter.cachedCount
       }
     });
     await crawlRepository.appendLog(run.id, {
@@ -90,16 +100,16 @@ export async function crawlArxivDateRange(input: {
       message: "Completed crawl.",
       details: {
         fetchedCount: papers.length,
-        insertedCount,
-        duplicateCount: papers.length - insertedCount
+        insertedCount: effectiveInsertedCount,
+        duplicateCount: filter.cachedCount
       }
     });
 
     return crawlRepository.finish(run.id, {
       status: "completed",
       fetchedCount: papers.length,
-      insertedCount,
-      duplicateCount: papers.length - insertedCount
+      insertedCount: effectiveInsertedCount,
+      duplicateCount: filter.cachedCount
     });
   } catch (error) {
     await crawlRepository.appendLog(run.id, {
@@ -125,7 +135,7 @@ async function getFilterResults(input: {
   interestProfile: string;
   paperRepository: ReturnType<typeof createPaperRepository>;
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
-}): Promise<InterestFilterResult[]> {
+}): Promise<{ results: InterestFilterResult[]; cachedCount: number; freshCount: number }> {
   const cachedResults: InterestFilterResult[] = [];
   const uncachedPapers: Awaited<ReturnType<PaperSourceFetcher>> = [];
 
@@ -145,5 +155,9 @@ async function getFilterResults(input: {
     })
     : [];
 
-  return [...cachedResults, ...freshResults];
+  return {
+    results: [...cachedResults, ...freshResults],
+    cachedCount: cachedResults.length,
+    freshCount: uncachedPapers.length
+  };
 }

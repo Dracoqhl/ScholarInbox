@@ -9,7 +9,8 @@ import { handleRouteError } from "@/lib/validation/http";
 const bodySchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  categories: z.array(z.string().min(1)).optional()
+  categories: z.array(z.string().min(1)).optional(),
+  maxResults: z.number().int().min(1).max(500).optional()
 });
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export async function POST(request: Request) {
       db,
       categories: body.categories?.length ? body.categories : settings.categories,
       dateFrom: body.dateFrom,
-      dateTo: body.dateTo
+      dateTo: body.dateTo,
+      maxResults: body.maxResults
     });
     return NextResponse.json({ run });
   } catch (error) {

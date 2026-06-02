@@ -106,21 +106,61 @@ describe("crawl service", () => {
   it("counts duplicates when the same range is crawled twice", async () => {
     const db = getDatabase(databasePath);
     const fetchPapers = async () => [makePaperInput("2401.00003")];
-    const filterPapers = async (papers: PaperInput[]) => papers.map((paper) => ({
+    let filterCallCount = 0;
+    const filterPapers = async (papers: PaperInput[], options: { profileHash: string }) => papers.map((paper) => ({
       sourceId: paper.sourceId,
       matched: true,
       score: 0.9,
       method: "llm" as const,
-      profileHash: "test-profile",
+      profileHash: options.profileHash,
       checkedAt: "2026-06-02T00:00:00.000Z",
       error: null
     }));
+    const countingFilterPapers = async (papers: PaperInput[], options: { profileHash: string }) => {
+      filterCallCount += 1;
+      return filterPapers(papers, options);
+    };
 
-    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers });
-    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers });
+    await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers });
+    const second = await crawlArxivDateRange({ db, categories: ["cs.CL"], dateFrom: "2024-01-01", dateTo: "2024-01-01", fetchPapers, filterPapers: countingFilterPapers });
 
+    expect(filterCallCount).toBe(1);
     expect(second.insertedCount).toBe(0);
     expect(second.duplicateCount).toBe(1);
+    expect(second.logs.find((log) => log.message === "Filtered papers by interest profile.")?.details).toMatchObject({
+      cachedFilterCount: 1,
+      freshFilterCount: 0
+    });
+  });
+
+  it("counts only newly matched papers as inserted", async () => {
+    const db = getDatabase(databasePath);
+
+    const result = await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => [makePaperInput("2401.00007"), makePaperInput("2401.00008")],
+      filterPapers: async (papers) => papers.map((paper) => ({
+      sourceId: paper.sourceId,
+      matched: paper.sourceId === "2401.00007",
+      score: paper.sourceId === "2401.00007" ? 0.9 : 0.2,
+      method: "llm" as const,
+      profileHash: "test-profile",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+      }))
+    });
+
+    expect(result.fetchedCount).toBe(2);
+    expect(result.insertedCount).toBe(1);
+    expect(result.duplicateCount).toBe(0);
+    expect(result.logs.find((log) => log.message === "Stored papers and filter results.")?.details).toMatchObject({
+      rawInsertedCount: 2,
+      effectiveInsertedCount: 1,
+      storedUnmatchedCount: 1
+    });
   });
 
   it("stores unmatched papers but hides them from the default paper list", async () => {

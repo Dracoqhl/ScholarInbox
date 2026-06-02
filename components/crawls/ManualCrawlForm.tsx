@@ -17,7 +17,7 @@ type CrawlRunResponse = {
   };
 };
 
-type DatePreset = "3" | "7" | "custom";
+type DatePreset = "1" | "3" | "7" | "custom";
 
 export function ManualCrawlForm() {
   const defaultDateRange = getDefaultManualCrawlDateRange();
@@ -25,13 +25,14 @@ export function ManualCrawlForm() {
   const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
   const [datePreset, setDatePreset] = useState<DatePreset>("7");
   const [categories, setCategories] = useState("cs.CL, cs.AI, cs.LG");
+  const [maxResults, setMaxResults] = useState(200);
   const [result, setResult] = useState<CrawlRunResponse["run"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState<CrawlLogEntry[]>([]);
   const [copied, setCopied] = useState(false);
 
-  function applyPreset(days: 3 | 7) {
+  function applyPreset(days: 1 | 3 | 7) {
     const range = getManualCrawlDateRangeForDays(days);
     setDatePreset(String(days) as DatePreset);
     setDateFrom(range.dateFrom);
@@ -61,7 +62,8 @@ export function ManualCrawlForm() {
       details: {
         categories: categories.split(",").map((item) => item.trim()).filter(Boolean),
         dateFrom,
-        dateTo
+        dateTo,
+        maxResults
       }
     }]);
     const response = await fetch("/api/crawls/manual", {
@@ -70,7 +72,8 @@ export function ManualCrawlForm() {
       body: JSON.stringify({
         dateFrom,
         dateTo,
-        categories: categories.split(",").map((item) => item.trim()).filter(Boolean)
+        categories: categories.split(",").map((item) => item.trim()).filter(Boolean),
+        maxResults
       })
     });
     setIsRunning(false);
@@ -105,7 +108,7 @@ export function ManualCrawlForm() {
         <h2 className="text-lg font-semibold">手动抓取</h2>
         <p className="mt-1 text-sm text-muted">选择日期范围，从 arXiv 抓取并去重入库。</p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <label className="space-y-1 text-sm">
           <span className="font-medium">开始日期</span>
           <input type="date" value={dateFrom} onChange={(event) => updateDateFrom(event.target.value)} className="h-10 w-full rounded-md border border-line bg-background px-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30" />
@@ -118,8 +121,13 @@ export function ManualCrawlForm() {
           <span className="font-medium">arXiv 分类</span>
           <input value={categories} onChange={(event) => setCategories(event.target.value)} className="h-10 w-full rounded-md border border-line bg-background px-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30" />
         </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">抓取上限</span>
+          <input type="number" min={1} max={500} value={maxResults} onChange={(event) => setMaxResults(clampMaxResults(Number(event.target.value)))} className="h-10 w-full rounded-md border border-line bg-background px-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30" />
+        </label>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => applyPreset(1)} className={presetButtonClass(datePreset === "1")}>最近 1 天</button>
         <button type="button" onClick={() => applyPreset(3)} className={presetButtonClass(datePreset === "3")}>最近 3 天</button>
         <button type="button" onClick={() => applyPreset(7)} className={presetButtonClass(datePreset === "7")}>最近 7 天</button>
         <button type="button" onClick={() => setDatePreset("custom")} className={presetButtonClass(datePreset === "custom")}>自定义</button>
@@ -132,8 +140,8 @@ export function ManualCrawlForm() {
         <div className="grid gap-3 rounded-md border border-line bg-background p-4 text-sm sm:grid-cols-4">
           <span>状态：{result.status}</span>
           <span>抓取：{result.fetchedCount}</span>
-          <span>新增：{result.insertedCount}</span>
-          <span>重复：{result.duplicateCount}</span>
+          <span>有效新增：{result.insertedCount}</span>
+          <span>已校验跳过：{result.duplicateCount}</span>
         </div>
       ) : null}
       <section className="rounded-md border border-line bg-background">
@@ -174,7 +182,7 @@ function presetButtonClass(active: boolean): string {
 
 function formatLogsForCopy(logs: CrawlLogEntry[], result: CrawlRunResponse["run"] | null): string {
   const header = result
-    ? [`status=${result.status}`, `fetched=${result.fetchedCount}`, `inserted=${result.insertedCount}`, `duplicate=${result.duplicateCount}`, `error=${result.errorMessage ?? ""}`].join(" ")
+    ? [`status=${result.status}`, `fetched=${result.fetchedCount}`, `effectiveInserted=${result.insertedCount}`, `cachedSkipped=${result.duplicateCount}`, `error=${result.errorMessage ?? ""}`].join(" ")
     : "status=pending";
   return [
     header,
@@ -183,6 +191,11 @@ function formatLogsForCopy(logs: CrawlLogEntry[], result: CrawlRunResponse["run"
       return `[${log.at}] ${log.level.toUpperCase()} ${log.message}${details}`;
     })
   ].join("\n");
+}
+
+function clampMaxResults(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(1, Math.min(500, Math.trunc(value)));
 }
 
 function formatTime(value: string): string {

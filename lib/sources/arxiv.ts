@@ -6,6 +6,7 @@ const ARXIV_REQUEST_DELAY_MS = 3000;
 const ARXIV_RATE_LIMIT_BACKOFF_MS = 30000;
 const ARXIV_REQUEST_TIMEOUT_MS = 45000;
 const ARXIV_MAX_RETRIES = 2;
+const DEFAULT_ARXIV_MAX_RESULTS = 200;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 type FetchLike = typeof fetch;
@@ -26,7 +27,7 @@ export function buildArxivQueryUrl(options: PaperSourceFetchOptions): URL {
   const dateQuery = `submittedDate:[${toArxivDate(options.dateFrom, "0000")} TO ${toArxivDate(options.dateTo, "2359")}]`;
   url.searchParams.set("search_query", `${categoryQuery} AND ${dateQuery}`);
   url.searchParams.set("start", "0");
-  url.searchParams.set("max_results", String(options.maxResults ?? 100));
+  url.searchParams.set("max_results", String(options.maxResults ?? DEFAULT_ARXIV_MAX_RESULTS));
   url.searchParams.set("sortBy", "submittedDate");
   url.searchParams.set("sortOrder", "descending");
   return url;

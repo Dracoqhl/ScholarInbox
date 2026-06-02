@@ -55,6 +55,16 @@ describe("arXiv source", () => {
     expect(url.searchParams.get("max_results")).toBe("50");
   });
 
+  it("defaults to a larger crawl result limit", () => {
+    const url = buildArxivQueryUrl({
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-02"
+    });
+
+    expect(url.searchParams.get("max_results")).toBe("200");
+  });
+
   it("waits three seconds between arXiv API requests", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
