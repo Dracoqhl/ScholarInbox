@@ -33,6 +33,18 @@ export type Paper = PaperInput & {
   analysisModel: string | null;
   analysisCheckedAt: string | null;
   analysisError: string | null;
+  pdfAnalysisOverviewZh: string | null;
+  pdfAnalysisBackgroundZh: string | null;
+  pdfAnalysisProblemFormulationZh: string | null;
+  pdfAnalysisMethodZh: string | null;
+  pdfAnalysisKeyIdeasZh: string | null;
+  pdfAnalysisExperimentsZh: string | null;
+  pdfAnalysisLimitationsZh: string | null;
+  pdfAnalysisReadingGuideZh: string | null;
+  pdfAnalysisAffiliations: string | null;
+  pdfAnalysisModel: string | null;
+  pdfAnalysisCheckedAt: string | null;
+  pdfAnalysisError: string | null;
   githubUrls: string[];
   createdAt: string;
   updatedRecordAt: string;
@@ -70,6 +82,21 @@ export type PaperAnalysisResult = {
   error: string | null;
 };
 
+export type PaperPdfAnalysisResult = {
+  overviewZh: string;
+  backgroundZh: string;
+  problemFormulationZh: string;
+  methodZh: string;
+  keyIdeasZh: string;
+  experimentsZh: string;
+  limitationsZh: string;
+  readingGuideZh: string;
+  affiliations: string;
+  model: string;
+  checkedAt: string;
+  error: string | null;
+};
+
 export type PaperRow = {
   id: string;
   source: string;
@@ -97,6 +124,18 @@ export type PaperRow = {
   analysis_model: string | null;
   analysis_checked_at: string | null;
   analysis_error: string | null;
+  pdf_analysis_overview_zh: string | null;
+  pdf_analysis_background_zh: string | null;
+  pdf_analysis_problem_formulation_zh: string | null;
+  pdf_analysis_method_zh: string | null;
+  pdf_analysis_key_ideas_zh: string | null;
+  pdf_analysis_experiments_zh: string | null;
+  pdf_analysis_limitations_zh: string | null;
+  pdf_analysis_reading_guide_zh: string | null;
+  pdf_analysis_affiliations: string | null;
+  pdf_analysis_model: string | null;
+  pdf_analysis_checked_at: string | null;
+  pdf_analysis_error: string | null;
   created_at: string;
   updated_record_at: string;
   status: PaperStatus | null;

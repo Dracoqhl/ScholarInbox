@@ -23,6 +23,18 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       analysis_model TEXT,
       analysis_checked_at TEXT,
       analysis_error TEXT,
+      pdf_analysis_overview_zh TEXT,
+      pdf_analysis_background_zh TEXT,
+      pdf_analysis_problem_formulation_zh TEXT,
+      pdf_analysis_method_zh TEXT,
+      pdf_analysis_key_ideas_zh TEXT,
+      pdf_analysis_experiments_zh TEXT,
+      pdf_analysis_limitations_zh TEXT,
+      pdf_analysis_reading_guide_zh TEXT,
+      pdf_analysis_affiliations TEXT,
+      pdf_analysis_model TEXT,
+      pdf_analysis_checked_at TEXT,
+      pdf_analysis_error TEXT,
       created_at TEXT NOT NULL,
       updated_record_at TEXT NOT NULL,
       UNIQUE(source, source_id)
@@ -66,11 +78,34 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
   ensurePaperStatesSupportsGeneral(db);
   ensurePaperFilterColumns(db);
   ensurePaperAnalysisColumns(db);
+  ensurePaperPdfAnalysisColumns(db);
   ensureCrawlRunLogColumn(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
     CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
   `);
+}
+
+function ensurePaperPdfAnalysisColumns(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(papers);").all<{ name: string }>().map((column) => column.name));
+  const missingColumns = [
+    ["pdf_analysis_overview_zh", "TEXT"],
+    ["pdf_analysis_background_zh", "TEXT"],
+    ["pdf_analysis_problem_formulation_zh", "TEXT"],
+    ["pdf_analysis_method_zh", "TEXT"],
+    ["pdf_analysis_key_ideas_zh", "TEXT"],
+    ["pdf_analysis_experiments_zh", "TEXT"],
+    ["pdf_analysis_limitations_zh", "TEXT"],
+    ["pdf_analysis_reading_guide_zh", "TEXT"],
+    ["pdf_analysis_affiliations", "TEXT"],
+    ["pdf_analysis_model", "TEXT"],
+    ["pdf_analysis_checked_at", "TEXT"],
+    ["pdf_analysis_error", "TEXT"]
+  ].filter(([name]) => !columns.has(name));
+
+  for (const [name, type] of missingColumns) {
+    db.exec(`ALTER TABLE papers ADD COLUMN ${name} ${type};`);
+  }
 }
 
 function ensureCrawlRunLogColumn(db: SqliteDatabase): void {

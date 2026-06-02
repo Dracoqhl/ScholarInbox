@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, FileText, Github } from "lucide-react";
+import { ExternalLink, FileText, Github, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
@@ -13,6 +13,7 @@ export function PaperDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -57,8 +58,30 @@ export function PaperDetail({ id }: { id: string }) {
     setPaper(data.paper);
   }
 
+  async function generatePdfAnalysis() {
+    if (!paper) return;
+    setError(null);
+    setIsAnalyzingPdf(true);
+    try {
+      const response = await fetch(`/api/papers/${paper.id}/pdf-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        return setError(data?.error ?? "PDF 精读解析失败");
+      }
+      const data = (await response.json()) as { paper: Paper };
+      setPaper(data.paper);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "PDF 精读解析失败");
+    } finally {
+      setIsAnalyzingPdf(false);
+    }
+  }
+
   if (isLoading) return <div className="rounded-md border border-line bg-surface p-6 text-sm text-muted">正在加载论文...</div>;
-  if (error || !paper) return <div className="rounded-md border border-danger/30 bg-danger/10 p-6 text-sm text-danger">{error}</div>;
+  if (!paper) return <div className="rounded-md border border-danger/30 bg-danger/10 p-6 text-sm text-danger">{error}</div>;
 
   return (
     <article className="rounded-md border border-line bg-surface p-5">
@@ -73,14 +96,53 @@ export function PaperDetail({ id }: { id: string }) {
           </div>
           <h2 className="mt-3 text-2xl font-semibold leading-8">{paper.title}</h2>
           <p className="mt-3 text-sm text-muted">{paper.authors.join(", ")}</p>
+          <p className="mt-2 text-sm text-muted">完成单位：{paper.pdfAnalysisAffiliations ?? "PDF 精读解析后显示"}</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <StatusSelect value={paper.status} disabled={isSaving} onChange={(next) => void patchStatus(next)} />
           <FavoriteButton isFavorite={paper.isFavorite} disabled={isSaving} onClick={() => void patchFavorite()} />
         </div>
       </div>
-      {paper.analysisSummaryZh ? (
+      <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md border border-line bg-background p-4">
+        <button
+          type="button"
+          disabled={isAnalyzingPdf}
+          onClick={() => void generatePdfAnalysis()}
+          className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw className={`h-4 w-4 ${isAnalyzingPdf ? "animate-spin" : ""}`} />
+          {paper.pdfAnalysisOverviewZh ? "刷新 PDF 精读解析" : "生成 PDF 精读解析"}
+        </button>
+        <span className="text-xs leading-5 text-muted">
+          {isAnalyzingPdf
+            ? "正在下载 PDF、抽取正文并调用大模型，长论文可能需要几分钟。"
+            : paper.pdfAnalysisCheckedAt
+              ? `上次解析：${new Date(paper.pdfAnalysisCheckedAt).toLocaleString("zh-CN")}`
+              : "详情页使用 PDF 正文解析；未生成前先展示摘要级中文解析。"}
+        </span>
+        {error ? <span className="w-full rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</span> : null}
+      </div>
+      {paper.pdfAnalysisOverviewZh ? (
         <div className="mt-6 max-w-4xl space-y-5">
+          <section className="rounded-md border border-line bg-background p-4">
+            <h3 className="text-sm font-semibold">中文导读</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{paper.pdfAnalysisOverviewZh}</p>
+          </section>
+          <section className="grid gap-4 md:grid-cols-2">
+            <PdfAnalysisSection title="背景与脉络" content={paper.pdfAnalysisBackgroundZh} />
+            <PdfAnalysisSection title="问题定义" content={paper.pdfAnalysisProblemFormulationZh} />
+          </section>
+          <PdfAnalysisSection title="方法流程" content={paper.pdfAnalysisMethodZh} />
+          <PdfAnalysisSection title="关键思想" content={paper.pdfAnalysisKeyIdeasZh} />
+          <PdfAnalysisSection title="实验与证据" content={paper.pdfAnalysisExperimentsZh} />
+          <PdfAnalysisSection title="局限与风险" content={paper.pdfAnalysisLimitationsZh} />
+          <PdfAnalysisSection title="精读建议" content={paper.pdfAnalysisReadingGuideZh} />
+        </div>
+      ) : paper.analysisSummaryZh ? (
+        <div className="mt-6 max-w-4xl space-y-5">
+          <div className="rounded-md border border-accent/30 bg-accent/10 p-4 text-sm leading-6 text-primary/80">
+            当前展示的是摘要级解析。点击“生成 PDF 精读解析”后，详情页会改用 PDF 正文生成的深度梳理。
+          </div>
           <section className="rounded-md border border-line bg-background p-4">
             <h3 className="text-sm font-semibold">一句话概括</h3>
             <p className="mt-2 text-sm leading-7 text-primary/90">{paper.analysisSummaryZh}</p>
@@ -130,5 +192,14 @@ export function PaperDetail({ id }: { id: string }) {
         ))}
       </div>
     </article>
+  );
+}
+
+function PdfAnalysisSection({ title, content }: { title: string; content: string | null }) {
+  return (
+    <section className="rounded-md border border-line bg-background p-4">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{content ?? "未识别"}</p>
+    </section>
   );
 }

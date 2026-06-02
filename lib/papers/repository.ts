@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
 import { extractGithubUrls } from "@/lib/papers/github-links";
-import type { Paper, PaperAnalysisResult, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
+import type { Paper, PaperAnalysisResult, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperPdfAnalysisResult, PaperRow, PaperStatus } from "@/lib/papers/types";
 
 export function createPaperRepository(db: SqliteDatabase) {
   return new PaperRepository(db);
@@ -217,6 +217,44 @@ class PaperRepository {
     return this.get(id);
   }
 
+  async setPdfAnalysisResult(id: string, result: PaperPdfAnalysisResult): Promise<Paper | null> {
+    this.db
+      .prepare(
+        `UPDATE papers
+         SET pdf_analysis_overview_zh = @overviewZh,
+             pdf_analysis_background_zh = @backgroundZh,
+             pdf_analysis_problem_formulation_zh = @problemFormulationZh,
+             pdf_analysis_method_zh = @methodZh,
+             pdf_analysis_key_ideas_zh = @keyIdeasZh,
+             pdf_analysis_experiments_zh = @experimentsZh,
+             pdf_analysis_limitations_zh = @limitationsZh,
+             pdf_analysis_reading_guide_zh = @readingGuideZh,
+             pdf_analysis_affiliations = @affiliations,
+             pdf_analysis_model = @model,
+             pdf_analysis_checked_at = @checkedAt,
+             pdf_analysis_error = @error,
+             updated_record_at = @updatedRecordAt
+         WHERE id = @id`
+      )
+      .run({
+        id,
+        overviewZh: result.overviewZh,
+        backgroundZh: result.backgroundZh,
+        problemFormulationZh: result.problemFormulationZh,
+        methodZh: result.methodZh,
+        keyIdeasZh: result.keyIdeasZh,
+        experimentsZh: result.experimentsZh,
+        limitationsZh: result.limitationsZh,
+        readingGuideZh: result.readingGuideZh,
+        affiliations: result.affiliations,
+        model: result.model,
+        checkedAt: result.checkedAt,
+        error: result.error,
+        updatedRecordAt: new Date().toISOString()
+      });
+    return this.get(id);
+  }
+
   async setFavorite(id: string, isFavorite: boolean): Promise<Paper | null> {
     this.db
       .prepare("UPDATE paper_states SET is_favorite = @isFavorite, updated_at = @updatedAt WHERE paper_id = @id")
@@ -298,6 +336,18 @@ function mapPaper(row: PaperRow): Paper {
     analysisModel: row.analysis_model,
     analysisCheckedAt: row.analysis_checked_at,
     analysisError: row.analysis_error,
+    pdfAnalysisOverviewZh: row.pdf_analysis_overview_zh,
+    pdfAnalysisBackgroundZh: row.pdf_analysis_background_zh,
+    pdfAnalysisProblemFormulationZh: row.pdf_analysis_problem_formulation_zh,
+    pdfAnalysisMethodZh: row.pdf_analysis_method_zh,
+    pdfAnalysisKeyIdeasZh: row.pdf_analysis_key_ideas_zh,
+    pdfAnalysisExperimentsZh: row.pdf_analysis_experiments_zh,
+    pdfAnalysisLimitationsZh: row.pdf_analysis_limitations_zh,
+    pdfAnalysisReadingGuideZh: row.pdf_analysis_reading_guide_zh,
+    pdfAnalysisAffiliations: row.pdf_analysis_affiliations,
+    pdfAnalysisModel: row.pdf_analysis_model,
+    pdfAnalysisCheckedAt: row.pdf_analysis_checked_at,
+    pdfAnalysisError: row.pdf_analysis_error,
     githubUrls: extractGithubUrls(row.abstract),
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
