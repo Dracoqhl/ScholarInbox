@@ -12,7 +12,7 @@ if [ -f .env.local ]; then
 fi
 
 export DATABASE_PATH="${DATABASE_PATH:-$ROOT_DIR/data/scholar-inbox.sqlite}"
-export BIND_HOST="${BIND_HOST:-127.0.0.1}"
+export BIND_HOST="${BIND_HOST:-172.18.0.1}"
 export PORT="${PORT:-3120}"
 
 mkdir -p "$(dirname "$DATABASE_PATH")"
