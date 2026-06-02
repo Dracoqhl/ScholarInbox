@@ -15,6 +15,7 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [isDeletingNew, setIsDeletingNew] = useState(false);
 
   const endpoint = useMemo(() => {
     const params = new URLSearchParams();
@@ -78,6 +79,18 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     setPapers((current) => current.map((item) => (item.id === paper.id ? data.paper : item)));
   }
 
+  async function deleteNewMatchedPapers() {
+    setIsDeletingNew(true);
+    setError(null);
+    const response = await fetch("/api/papers?status=new&matched=true", { method: "DELETE" });
+    setIsDeletingNew(false);
+    if (!response.ok) {
+      setError("删除新论文失败");
+      return;
+    }
+    await loadPapers();
+  }
+
   return (
     <section className="space-y-4">
       <div className="flex flex-col gap-3 rounded-md border border-line bg-surface p-4 md:flex-row md:items-center md:justify-between">
@@ -88,6 +101,16 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          {!favoriteOnly ? (
+            <button
+              type="button"
+              disabled={isDeletingNew}
+              onClick={() => void deleteNewMatchedPapers()}
+              className="h-10 rounded-md border border-danger/40 px-3 text-sm font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isDeletingNew ? "删除中..." : "删除新论文"}
+            </button>
+          ) : null}
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted" />
             <input
@@ -109,6 +132,7 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
             <option value="reading">阅读中</option>
             <option value="done">已读</option>
             <option value="archived">归档</option>
+            <option value="irrelevant">方向无关</option>
           </select>
         </div>
       </div>

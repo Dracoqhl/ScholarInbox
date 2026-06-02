@@ -22,7 +22,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'interested', 'reading', 'done', 'archived')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -53,10 +53,29 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_paper_states_favorite ON paper_states(is_favorite);
     CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at ON crawl_runs(started_at);
   `);
+  ensurePaperStatesSupportsIrrelevant(db);
   ensurePaperFilterColumns(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
     CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
+  `);
+}
+
+function ensurePaperStatesSupportsIrrelevant(db: SqliteDatabase): void {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_states'").get<{ sql: string }>();
+  if (!table || table.sql.includes("'irrelevant'")) return;
+
+  db.exec(`
+    ALTER TABLE paper_states RENAME TO paper_states_old;
+    CREATE TABLE paper_states (
+      paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('new', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      is_favorite INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO paper_states (paper_id, status, is_favorite, updated_at)
+    SELECT paper_id, status, is_favorite, updated_at FROM paper_states_old;
+    DROP TABLE paper_states_old;
   `);
 }
 

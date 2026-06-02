@@ -1,4 +1,4 @@
-export type PaperStatus = "new" | "interested" | "reading" | "done" | "archived";
+export type PaperStatus = "new" | "interested" | "reading" | "done" | "archived" | "irrelevant";
 export type PaperFilterMethod = "llm" | "prefilter";
 
 export type PaperInput = {
@@ -33,6 +33,11 @@ export type PaperListFilters = {
   favorite?: boolean;
   matched?: boolean;
   query?: string;
+  status?: PaperStatus;
+};
+
+export type PaperDeleteFilters = {
+  matched?: boolean;
   status?: PaperStatus;
 };
 

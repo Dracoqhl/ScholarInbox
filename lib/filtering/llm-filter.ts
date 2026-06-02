@@ -3,6 +3,7 @@ import type { InterestFilterResult } from "@/lib/filtering/types";
 import type { PaperInput } from "@/lib/papers/types";
 
 type FetchLike = typeof fetch;
+const MATCH_SCORE_THRESHOLD = 0.65;
 
 export async function classifyPapersWithLlm(
   papers: PaperInput[],
@@ -59,8 +60,14 @@ function systemPrompt(): string {
     "You filter arXiv papers for a personal research inbox.",
     "Return only a JSON array. Do not include markdown.",
     "Each item must be {\"sourceId\": string, \"matched\": boolean, \"score\": number}.",
-    "matched means the paper is relevant to the user's current research interests based on title, abstract, and categories.",
-    "score must be between 0 and 1."
+    "matched means the paper is strongly relevant to the user's current research interests based on title, abstract, and categories.",
+    "score must be between 0 and 1. Use score >= 0.65 only for strong matches.",
+    "Always include text/code/math LLM reasoning, coding reasoning, mathematical reasoning, formal reasoning, algorithmic reasoning, test-time scaling, search, planning, verification, self-correction, LLM post-training, SFT, RLHF, DPO, RLAIF, RLVR, reward models, process rewards, verifiable rewards, Agentic RL, LLM agents, tool use, memory, planner-executor systems, reflection, multi-agent collaboration, and LLM decision-making.",
+    "Exclude all multimodal and vision-language work, including VLMs, multimodal LLMs, image/video-language reasoning, visual agents, GUI agents based on screenshots, embodied VLM agents, multimodal tool use, visual planning, image/video understanding, and image/video generation.",
+    "Exclude embodied AI, robotics, navigation, manipulation, autonomous driving, physical control, and sensorimotor decision-making.",
+    "Exclude traditional reinforcement learning, traditional planning, control theory, operations research, bandits, MDP/POMDP algorithms, or decision-making methods unless the central method or subject is clearly a language model or language-model agent.",
+    "Exclude pure computer vision, medical imaging, remote sensing, sensors, time-series forecasting, recommendation systems, graph learning, distributed optimization, and generic machine learning unless directly focused on text/code/math LLM reasoning or LLM agents.",
+    "Exclude jailbreak, red-teaming, toxicity, bias, privacy, watermarking, content moderation, safety benchmarks, misuse monitoring, policy compliance, and general LLM safety unless the core contribution directly supports post-training, reward modeling, reasoning alignment, agent alignment, or decision-making capability."
   ].join("\n");
 }
 
@@ -127,7 +134,7 @@ function normalizeLlmResults(
     }
     return {
       sourceId: paper.sourceId,
-      matched: result.matched,
+      matched: result.matched && result.score >= MATCH_SCORE_THRESHOLD,
       score: result.score,
       method: "llm",
       profileHash,

@@ -52,6 +52,15 @@ describe("paper repository", () => {
     expect(updated?.status).toBe("done");
   });
 
+  it("persists papers marked as irrelevant to the research direction", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00008" }));
+
+    await repository.setStatus(paper.id, "irrelevant");
+
+    expect((await repository.get(paper.id))?.status).toBe("irrelevant");
+  });
+
   it("can list only favorited papers", async () => {
     const repository = createPaperRepository(getDatabase(databasePath));
     const first = await repository.upsert(makePaperInput({ sourceId: "2401.00003", title: "Favorite" }));
@@ -96,6 +105,48 @@ describe("paper repository", () => {
     });
   });
 
+  it("orders matched papers by filter score before publication date", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const low = await repository.upsert(makePaperInput({ sourceId: "2401.00009", title: "Low score", publishedAt: "2026-01-03T00:00:00.000Z" }));
+    const high = await repository.upsert(makePaperInput({ sourceId: "2401.00010", title: "High score", publishedAt: "2026-01-01T00:00:00.000Z" }));
+
+    await repository.setFilterResult(low.paper.id, {
+      matched: true,
+      score: 0.71,
+      method: "llm",
+      profileHash: "profile-a",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+    await repository.setFilterResult(high.paper.id, {
+      matched: true,
+      score: 0.96,
+      method: "llm",
+      profileHash: "profile-a",
+      checkedAt: "2026-06-02T00:00:00.000Z",
+      error: null
+    });
+
+    expect((await repository.list({ matched: true })).map((paper) => paper.title)).toEqual(["High score", "Low score"]);
+  });
+
+  it("deletes only new matched papers selected for inbox cleanup", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const newMatched = await repository.upsert(makePaperInput({ sourceId: "2401.00011", title: "Delete me" }));
+    const interestedMatched = await repository.upsert(makePaperInput({ sourceId: "2401.00012", title: "Keep interested" }));
+    const newUnmatched = await repository.upsert(makePaperInput({ sourceId: "2401.00013", title: "Keep unmatched" }));
+
+    await repository.setStatus(interestedMatched.paper.id, "interested");
+    await repository.setFilterResult(newMatched.paper.id, makeFilterResult(true, 0.9));
+    await repository.setFilterResult(interestedMatched.paper.id, makeFilterResult(true, 0.8));
+    await repository.setFilterResult(newUnmatched.paper.id, makeFilterResult(false, 0.1));
+
+    const result = await repository.deleteMany({ status: "new", matched: true });
+
+    expect(result.deletedCount).toBe(1);
+    expect((await repository.list({})).map((paper) => paper.title).sort()).toEqual(["Keep interested", "Keep unmatched"]);
+  });
+
   it("finds an existing filter result for the current interest profile", async () => {
     const repository = createPaperRepository(getDatabase(databasePath));
     const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00007" }));
@@ -130,5 +181,16 @@ function makePaperInput(overrides: Partial<PaperInput> = {}): PaperInput {
     sourceUrl: "https://arxiv.org/abs/2401.00001",
     pdfUrl: "https://arxiv.org/pdf/2401.00001",
     ...overrides
+  };
+}
+
+function makeFilterResult(matched: boolean, score: number) {
+  return {
+    matched,
+    score,
+    method: "llm" as const,
+    profileHash: "profile-a",
+    checkedAt: "2026-06-02T00:00:00.000Z",
+    error: null
   };
 }

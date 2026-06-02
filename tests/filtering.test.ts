@@ -86,6 +86,8 @@ describe("interest filtering", () => {
     }));
     expect(body.stream).toBe(true);
     expect(body.input).toEqual(expect.any(Array));
+    expect(JSON.stringify(body.input)).toContain("Exclude all multimodal");
+    expect(JSON.stringify(body.input)).toContain("traditional reinforcement learning");
     expect(results).toEqual([
       {
         sourceId: "2601.00002",
@@ -97,6 +99,32 @@ describe("interest filtering", () => {
         error: null
       }
     ]);
+  });
+
+  it("applies a strict score threshold even when the model marks a paper as matched", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response([
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"[{\\\"sourceId\\\":\\\"2601.00002\\\",\\\"matched\\\":true,\\\"score\\\":0.61}]\"}",
+      "",
+      "data: [DONE]",
+      ""
+    ].join("\n"), { status: 200 }));
+
+    const results = await classifyPapersWithLlm([makePaper({ sourceId: "2601.00002" })], {
+      interestProfile: "大语言模型推理",
+      profileHash: "profile-hash",
+      config: {
+        baseUrl: "https://api.example.com/v1",
+        model: "test-model",
+        apiKey: "test-key"
+      },
+      fetcher
+    });
+
+    expect(results[0]).toMatchObject({
+      sourceId: "2601.00002",
+      matched: false,
+      score: 0.61
+    });
   });
 
   it("hashes interest profiles stably", () => {

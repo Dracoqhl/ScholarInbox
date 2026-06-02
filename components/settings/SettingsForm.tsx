@@ -58,8 +58,8 @@ export function SettingsForm() {
   return (
     <form onSubmit={submit} className="space-y-4 rounded-md border border-line bg-surface p-5">
       <div>
-        <h2 className="text-lg font-semibold">筛选与抓取设置</h2>
-        <p className="mt-1 text-sm text-muted">当前 MVP 保存配置，筛选执行会在下一轮接入。</p>
+        <h2 className="text-lg font-semibold">抓取设置</h2>
+        <p className="mt-1 text-sm text-muted">研究兴趣边界由内部偏好文件维护，这里只配置抓取分类、计划时间和 API 连通性。</p>
       </div>
       <label className="block space-y-1 text-sm">
         <span className="font-medium">arXiv 分类</span>
@@ -68,10 +68,6 @@ export function SettingsForm() {
       <label className="block space-y-1 text-sm">
         <span className="font-medium">每日抓取时间</span>
         <input type="time" value={dailyCrawlTime} onChange={(event) => setDailyCrawlTime(event.target.value)} className="h-10 rounded-md border border-line bg-background px-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30" />
-      </label>
-      <label className="block space-y-1 text-sm">
-        <span className="font-medium">兴趣筛选文本</span>
-        <textarea value={interestProfile} onChange={(event) => setInterestProfile(event.target.value)} rows={7} className="w-full rounded-md border border-line bg-background px-3 py-2 leading-6 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30" />
       </label>
       <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={isSaving} className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-60">

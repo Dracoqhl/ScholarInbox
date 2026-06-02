@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/app-shell/AppShell";
-import { SettingsForm } from "@/components/settings/SettingsForm";
+import { redirect } from "next/navigation";
 
 export default function SettingsPage() {
-  return (
-    <AppShell>
-      <SettingsForm />
-    </AppShell>
-  );
+  redirect("/crawls");
 }

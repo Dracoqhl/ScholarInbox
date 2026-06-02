@@ -4,7 +4,7 @@ import type { CrawlRun } from "@/lib/crawls/types";
 import { createPaperRepository } from "@/lib/papers/repository";
 import { filterPapersByInterest, getInterestProfileHash } from "@/lib/filtering/interest-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";
-import { createSettingsRepository } from "@/lib/settings/repository";
+import { getResearchInterestProfile } from "@/lib/user-preferences/research-interest";
 import { fetchArxivPapers } from "@/lib/sources/arxiv";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
 
@@ -18,7 +18,6 @@ export async function crawlArxivDateRange(input: {
 }): Promise<CrawlRun> {
   const crawlRepository = createCrawlRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
-  const settingsRepository = createSettingsRepository(input.db);
   const run = await crawlRepository.start({
     source: "arxiv",
     categories: input.categories,
@@ -32,12 +31,12 @@ export async function crawlArxivDateRange(input: {
       dateFrom: input.dateFrom,
       dateTo: input.dateTo
     });
-    const settings = await settingsRepository.get();
-    const profileHash = getInterestProfileHash(settings.interestProfile);
+    const interestProfile = getResearchInterestProfile();
+    const profileHash = getInterestProfileHash(interestProfile);
     const filterResults = await getFilterResults({
       papers,
       profileHash,
-      interestProfile: settings.interestProfile,
+      interestProfile,
       paperRepository,
       filterPapers: input.filterPapers
     });

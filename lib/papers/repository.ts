@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
-import type { Paper, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
+import type { Paper, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperRow, PaperStatus } from "@/lib/papers/types";
 
 export function createPaperRepository(db: SqliteDatabase) {
   return new PaperRepository(db);
@@ -89,10 +89,45 @@ class PaperRepository {
     }
 
     const rows = this.db
-      .prepare(baseSelect(where.length ? `WHERE ${where.join(" AND ")}` : "") + " ORDER BY papers.published_at DESC, papers.created_at DESC")
+      .prepare(baseSelect(where.length ? `WHERE ${where.join(" AND ")}` : "") + orderByClause(filters))
       .all<PaperRow>(params);
 
     return rows.map(mapPaper);
+  }
+
+  async deleteMany(filters: PaperDeleteFilters): Promise<{ deletedCount: number }> {
+    const where: string[] = [];
+    const params: Record<string, unknown> = {};
+
+    if (filters.status) {
+      where.push("paper_states.status = @status");
+      params.status = filters.status;
+    }
+
+    if (filters.matched !== undefined) {
+      where.push("papers.filter_matched = @matched");
+      params.matched = filters.matched ? 1 : 0;
+    }
+
+    if (where.length === 0) {
+      throw new Error("deleteMany requires at least one filter.");
+    }
+
+    const rows = this.db
+      .prepare(
+        `SELECT papers.id
+         FROM papers
+         JOIN paper_states ON paper_states.paper_id = papers.id
+         WHERE ${where.join(" AND ")}`
+      )
+      .all<{ id: string }>(params);
+
+    for (const row of rows) {
+      this.db.prepare("DELETE FROM paper_states WHERE paper_id = @id").run({ id: row.id });
+      this.db.prepare("DELETE FROM papers WHERE id = @id").run({ id: row.id });
+    }
+
+    return { deletedCount: rows.length };
   }
 
   async getCurrentFilterResult(source: string, sourceId: string, profileHash: string): Promise<PaperFilterResult | null> {
@@ -173,6 +208,14 @@ function baseSelect(whereClause: string): string {
     JOIN paper_states ON paper_states.paper_id = papers.id
     ${whereClause}
   `;
+}
+
+function orderByClause(filters: PaperListFilters): string {
+  if (filters.matched === true) {
+    return " ORDER BY papers.filter_score IS NULL, papers.filter_score DESC, papers.published_at DESC, papers.created_at DESC";
+  }
+
+  return " ORDER BY papers.published_at DESC, papers.created_at DESC";
 }
 
 function toPaperParams(input: PaperInput & { id: string; createdAt?: string; updatedRecordAt: string }) {

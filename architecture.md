@@ -156,7 +156,9 @@ Owns interest profile matching.
 - Results do not store natural-language reasons.
 - Local keyword/category prefiltering only removes clearly unrelated papers before model calls.
 - Batch LLM filtering is the final positive-match decision for papers that pass prefiltering.
+- LLM results are hardened by a server-side score threshold; low-score results are unmatched even if the model marks them matched.
 - The papers API defaults to matched papers, while favorite queries can still return saved favorites regardless of match state.
+- `irrelevant` paper status is user feedback for future filtering calibration.
 
 ### `lib/analysis/`
 
@@ -173,6 +175,7 @@ Owns persisted non-secret settings.
 - Research interest profile text can be persisted.
 - arXiv categories and crawl time can be persisted.
 - API keys must stay in environment variables or a server-only secret mechanism.
+- Runtime filtering reads the maintained Markdown preference file rather than exposing the full boundary text in the UI.
 
 ## Data Model Outline
 
@@ -209,7 +212,8 @@ The current MVP includes:
 - `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, settings, and AI API testing.
 - `components/papers/**`: paper list, detail view, status select, and favorite button.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
-- `components/settings/SettingsForm.tsx`: settings UI.
+- `components/settings/SettingsForm.tsx`: crawl settings and API test UI, shown on `/crawls`.
 - `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use.
+- `docs/user-preferences/research-interest.md`: maintained research-interest boundary for filter prompts and future calibration.
 
 The current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.

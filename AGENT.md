@@ -23,6 +23,8 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Interest filtering does not need to generate or store natural-language reasons.
 - Filter results should store `matched` and may store an optional `score`.
 - Interest filtering uses local high-recall prefiltering to skip clearly unrelated papers, then batched AI filtering as the final positive-match decision.
+- Batched AI filtering uses a strict score threshold: scores below 0.65 are treated as unmatched even if the model says `matched: true`.
+- User research-interest boundaries are maintained in `docs/user-preferences/research-interest.md`, not only in the settings UI text.
 - If AI configuration is unavailable or filtering fails, crawl filtering should fail visibly rather than silently falling back to non-AI matching.
 - The user currently cares about large language model post-training, model reasoning, test-time scaling, RLHF/DPO/RLAIF, agentic RL, tool use, and multi-agent reasoning.
 - Add a paper favorite feature so high-value papers can be revisited later.
@@ -30,6 +32,8 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Early parsing/testing should fully parse only one selected paper. Do not batch-parse papers during the initial debug phase.
 - API keys and secrets must stay server-side and must not be committed.
 - Current MVP can manually crawl arXiv date ranges, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
+- Paper status includes `irrelevant` / `方向无关`. Before future filtering changes, check whether such papers exist and discuss calibration with the user before introducing broader filters.
+- `/settings` redirects to `/crawls`; crawl-related settings, API testing, and manual crawling are merged into `/crawls`.
 - Manual arXiv crawls default to the most recent 7 UTC dates because same-day `submittedDate` queries can return zero before arXiv publishes the latest batch.
 - arXiv legacy API requests must stay single-connection with at least 3 seconds between requests; the source fetcher includes in-process throttling and limited 429/5xx retries.
 - Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/responses` call.

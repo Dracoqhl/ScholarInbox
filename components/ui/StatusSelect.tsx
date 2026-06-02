@@ -7,7 +7,8 @@ const statusOptions: Array<{ value: PaperStatus; label: string }> = [
   { value: "interested", label: "感兴趣" },
   { value: "reading", label: "阅读中" },
   { value: "done", label: "已读" },
-  { value: "archived", label: "归档" }
+  { value: "archived", label: "归档" },
+  { value: "irrelevant", label: "方向无关" }
 ];
 
 export function StatusSelect({

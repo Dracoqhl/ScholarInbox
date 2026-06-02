@@ -30,6 +30,20 @@ const POSITIVE_TERMS = [
 ];
 
 const CLEARLY_UNRELATED_TERMS = [
+  "multimodal",
+  "vision-language",
+  "vision language",
+  "vlm",
+  "image",
+  "video",
+  "visual",
+  "embodied",
+  "robot",
+  "robotics",
+  "navigation",
+  "manipulation",
+  "autonomous driving",
+  "control",
   "segmentation",
   "medical image",
   "ct images",
@@ -104,7 +118,7 @@ export function prefilterPaperForInterest(paper: PaperInput, _interestProfile: s
   const hasClearlyUnrelatedSignal = CLEARLY_UNRELATED_TERMS.some((term) => text.includes(term));
   const categoryLooksRelevant = paper.categories.some((category) => ["cs.CL", "cs.AI", "cs.LG"].includes(category));
 
-  if (!hasPositiveSignal && hasClearlyUnrelatedSignal && !categoryLooksRelevant) {
+  if (!hasPositiveSignal && hasClearlyUnrelatedSignal) {
     return {
       action: "reject",
       sourceId: paper.sourceId,

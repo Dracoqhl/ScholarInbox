@@ -8,7 +8,7 @@ import { handleRouteError } from "@/lib/validation/http";
 const querySchema = z.object({
   favorite: z.enum(["true", "false"]).optional(),
   matched: z.enum(["true", "false", "all"]).optional(),
-  status: z.enum(["new", "interested", "reading", "done", "archived"]).optional(),
+  status: z.enum(["new", "interested", "reading", "done", "archived", "irrelevant"]).optional(),
   query: z.string().optional()
 });
 
@@ -25,6 +25,19 @@ export async function GET(request: NextRequest) {
       query: query.query
     });
     return NextResponse.json({ papers });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const query = querySchema.parse(Object.fromEntries(request.nextUrl.searchParams));
+    const result = await createPaperRepository(getAppDatabase()).deleteMany({
+      status: query.status ?? "new",
+      matched: getMatchedFilter(query.matched ?? "true", undefined)
+    });
+    return NextResponse.json(result);
   } catch (error) {
     return handleRouteError(error);
   }

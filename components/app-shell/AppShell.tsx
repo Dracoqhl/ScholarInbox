@@ -3,8 +3,7 @@ import Link from "next/link";
 const navItems = [
   { href: "/", label: "论文" },
   { href: "/favorites", label: "收藏" },
-  { href: "/crawls", label: "抓取" },
-  { href: "/settings", label: "设置" }
+  { href: "/crawls", label: "抓取" }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
