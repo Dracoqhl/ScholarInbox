@@ -60,6 +60,19 @@ describe("paper repository", () => {
     expect((await repository.get(paper.id))?.status).toBe("irrelevant");
   });
 
+  it("persists skipped papers without keeping them favorited", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00014" }));
+
+    await repository.setFavorite(paper.id, true);
+    await repository.setStatus(paper.id, "skipped");
+
+    expect(await repository.get(paper.id)).toMatchObject({
+      status: "skipped",
+      isFavorite: false
+    });
+  });
+
   it("normalizes legacy reading states to archived", async () => {
     const db = getDatabase(databasePath);
     const repository = createPaperRepository(db);

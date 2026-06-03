@@ -8,7 +8,7 @@ import { handleRouteError } from "@/lib/validation/http";
 const querySchema = z.object({
   favorite: z.enum(["true", "false"]).optional(),
   matched: z.enum(["true", "false", "all"]).optional(),
-  status: z.enum(["new", "archived", "irrelevant"]).optional(),
+  status: z.enum(["new", "skipped", "archived", "irrelevant"]).optional(),
   query: z.string().optional(),
   userTagId: z.union([z.string(), z.array(z.string())]).optional(),
   keywordTag: z.union([z.string(), z.array(z.string())]).optional(),

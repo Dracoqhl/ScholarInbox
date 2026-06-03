@@ -83,7 +83,7 @@ export function PaperDetail({ id }: { id: string }) {
     const previousFavorite = paper.isFavorite;
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
-    setPaper({ ...paper, status, isFavorite: status === "irrelevant" ? false : paper.isFavorite });
+    setPaper({ ...paper, status, isFavorite: status === "irrelevant" || status === "skipped" ? false : paper.isFavorite });
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {

@@ -8,6 +8,7 @@ export type PaperStatusAction = PaperStatus | "favorite";
 
 const statusOptions: Array<{ value: PaperStatusAction; label: string }> = [
   { value: "new", label: "新论文" },
+  { value: "skipped", label: "略过" },
   { value: "archived", label: "归档" },
   { value: "favorite", label: "收藏" },
   { value: "irrelevant", label: "方向无关" }

@@ -27,7 +27,8 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - User research-interest boundaries are maintained in `docs/user-preferences/research-interest.md`, not only in the settings UI text.
 - If AI configuration is unavailable or filtering fails, crawl filtering should fail visibly rather than silently falling back to non-AI matching.
 - The user currently cares about large language model post-training, model reasoning, test-time scaling, RLHF/DPO/RLAIF, agentic RL, tool use, and multi-agent reasoning.
-- Paper lifecycle status is intentionally compact: `new`, `archived`, and `irrelevant`.
+- Paper lifecycle status is intentionally compact: `new`, `skipped`, `archived`, and `irrelevant`.
+- `skipped` / `略过` means the paper is broadly direction-consistent but should not enter the archive knowledge base for now; it is not a filtering-calibration signal.
 - Favoriting a paper marks it as high-importance and automatically moves it into `archived`; favorites are a priority flag over archived papers, not a separate lifecycle.
 - Legacy states such as `general`, `interested`, `reading`, and `done` should be normalized to `archived`.
 - AI keyword tags are generated from paper analysis and stored separately from user-defined tags.

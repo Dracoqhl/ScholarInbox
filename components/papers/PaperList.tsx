@@ -117,7 +117,9 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
     const previousFavorite = paper.isFavorite;
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
-    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus, isFavorite: nextStatus === "irrelevant" ? false : item.isFavorite } : item)));
+    setPapers((current) =>
+      current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus, isFavorite: nextStatus === "irrelevant" || nextStatus === "skipped" ? false : item.isFavorite } : item))
+    );
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {
@@ -268,6 +270,7 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
           >
             <option value="all">全部状态</option>
             <option value="new">新论文</option>
+            <option value="skipped">略过</option>
             <option value="archived">归档</option>
             <option value="irrelevant">方向无关</option>
           </select>

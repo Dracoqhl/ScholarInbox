@@ -43,7 +43,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'skipped', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
@@ -153,14 +153,14 @@ function ensureCrawlRunLogColumn(db: SqliteDatabase): void {
 function ensurePaperStatesUseSimplifiedStatuses(db: SqliteDatabase): void {
   const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_states'").get<{ sql: string }>();
   if (!table) return;
-  const isSimplified = table.sql.includes("'new', 'archived', 'irrelevant'") && !table.sql.includes("'general'");
+  const isSimplified = table.sql.includes("'skipped'") && !table.sql.includes("'general'");
   if (isSimplified) return;
 
   db.exec(`
     ALTER TABLE paper_states RENAME TO paper_states_old;
     CREATE TABLE paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'skipped', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
@@ -168,6 +168,7 @@ function ensurePaperStatesUseSimplifiedStatuses(db: SqliteDatabase): void {
     INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
     SELECT paper_id,
            CASE WHEN status = 'new' THEN 'new'
+                WHEN status = 'skipped' THEN 'skipped'
                 WHEN status = 'irrelevant' THEN 'irrelevant'
                 ELSE 'archived'
            END,

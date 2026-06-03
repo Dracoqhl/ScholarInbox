@@ -298,7 +298,7 @@ class PaperRepository {
   }
 
   async setStatus(id: string, status: PaperStatus): Promise<Paper | null> {
-    const favoriteAssignment = status === "irrelevant" ? ", is_favorite = 0" : "";
+    const favoriteAssignment = status === "irrelevant" || status === "skipped" ? ", is_favorite = 0" : "";
     this.db
       .prepare(`UPDATE paper_states SET status = @status${favoriteAssignment}, updated_at = @updatedAt WHERE paper_id = @id`)
       .run({ id, status, updatedAt: new Date().toISOString() });

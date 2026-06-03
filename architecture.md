@@ -201,7 +201,7 @@ Expected core entities:
 - `crawl_runs`: each manual or scheduled crawl.
 - `filter_profiles`: saved research-interest descriptions.
 - `filter_results`: per-paper match result for a profile.
-- `paper_states`: compact lifecycle status (`new`, `archived`, `irrelevant`), favorite flag, and the user's per-paper note.
+- `paper_states`: compact lifecycle status (`new`, `skipped`, `archived`, `irrelevant`), favorite flag, and the user's per-paper note. `skipped` is direction-consistent but not part of the archive knowledge base; `irrelevant` is calibration feedback.
 - `user_tags`: user-defined colored labels for personal knowledge-base organization.
 - `paper_user_tags`: many-to-many assignments between papers and user-defined tags.
 - `paper_analysis`: single-paper analysis results.

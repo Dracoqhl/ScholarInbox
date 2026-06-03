@@ -1,4 +1,4 @@
-export type PaperStatus = "new" | "archived" | "irrelevant";
+export type PaperStatus = "new" | "skipped" | "archived" | "irrelevant";
 export type PaperFilterMethod = "llm" | "prefilter";
 
 export type UserTag = {

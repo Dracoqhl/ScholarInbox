@@ -6,7 +6,7 @@ import { createPaperRepository } from "@/lib/papers/repository";
 import { handleRouteError, jsonError } from "@/lib/validation/http";
 
 const bodySchema = z.object({
-  status: z.enum(["new", "archived", "irrelevant"])
+  status: z.enum(["new", "skipped", "archived", "irrelevant"])
 });
 
 export const dynamic = "force-dynamic";
