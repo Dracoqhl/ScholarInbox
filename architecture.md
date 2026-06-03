@@ -191,7 +191,7 @@ Owns persisted non-secret settings.
 - Research interest profile text can be persisted.
 - arXiv categories and crawl time can be persisted.
 - API keys must stay in environment variables or a server-only secret mechanism.
-- Runtime filtering reads the maintained Markdown preference file rather than exposing the full boundary text in the UI.
+- Runtime filtering reads the local private Markdown preference file when present; if it is absent, `lib/user-preferences/research-interest.ts` provides a narrow built-in default. The private preference file is not tracked by Git.
 
 ## Data Model Outline
 
@@ -236,4 +236,4 @@ The current MVP includes:
 - `components/settings/SettingsForm.tsx`: crawl settings and API test UI, shown on `/crawls`.
 - `scripts/daily-crawl-scheduler.mjs`: script-managed daily scheduler that triggers scheduled crawls through the local API without opening another port.
 - `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use; they start Next and the scheduler together and clean both up on exit.
-- `docs/user-preferences/research-interest.md`: maintained research-interest boundary for filter prompts and future calibration.
+- `docs/user-preferences/research-interest.md`: local private research-interest boundary for filter prompts and future calibration. It is intentionally ignored by Git.
