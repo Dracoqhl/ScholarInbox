@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupPapersByPublishedDate, sortPapersForList } from "../lib/papers/list-view";
+import { groupPapersByPublishedDate, shouldKeepPaperAfterLocalMutation, sortPapersForList } from "../lib/papers/list-view";
 import type { Paper } from "../lib/papers/types";
 
 describe("paper list view sorting", () => {
@@ -34,9 +34,39 @@ describe("paper list view sorting", () => {
       { date: "2026-06-01", count: 1 }
     ]);
   });
+
+  it("keeps a locally archived paper visible in the inbox until the next reload", () => {
+    const paper = makePaper("newly-archived", "2026-06-02T08:00:00.000Z", 0.91, { status: "archived" });
+
+    expect(
+      shouldKeepPaperAfterLocalMutation(paper, {
+        mode: "inbox",
+        status: "new",
+        selectedUserTagIds: [],
+        keywordTags: [],
+        publishedFrom: "",
+        publishedTo: ""
+      })
+    ).toBe(true);
+  });
+
+  it("still applies active filters outside the inbox after local mutations", () => {
+    const paper = makePaper("irrelevant", "2026-06-02T08:00:00.000Z", 0.91, { status: "irrelevant" });
+
+    expect(
+      shouldKeepPaperAfterLocalMutation(paper, {
+        mode: "archive",
+        status: "archived",
+        selectedUserTagIds: [],
+        keywordTags: [],
+        publishedFrom: "",
+        publishedTo: ""
+      })
+    ).toBe(false);
+  });
 });
 
-function makePaper(sourceId: string, publishedAt: string, filterScore: number): Paper {
+function makePaper(sourceId: string, publishedAt: string, filterScore: number, overrides: Partial<Paper> = {}): Paper {
   return {
     id: sourceId,
     source: "arxiv",
@@ -66,9 +96,23 @@ function makePaper(sourceId: string, publishedAt: string, filterScore: number): 
     analysisModel: null,
     analysisCheckedAt: null,
     analysisError: null,
+    pdfAnalysisOverviewZh: null,
+    pdfAnalysisBackgroundZh: null,
+    pdfAnalysisProblemFormulationZh: null,
+    pdfAnalysisMethodZh: null,
+    pdfAnalysisKeyIdeasZh: null,
+    pdfAnalysisExperimentsZh: null,
+    pdfAnalysisLimitationsZh: null,
+    pdfAnalysisReadingGuideZh: null,
+    pdfAnalysisAffiliations: null,
+    pdfAnalysisModel: null,
+    pdfAnalysisCheckedAt: null,
+    pdfAnalysisError: null,
     keywordTags: [],
+    userTags: [],
     githubUrls: [],
     createdAt: publishedAt,
-    updatedRecordAt: publishedAt
+    updatedRecordAt: publishedAt,
+    ...overrides
   };
 }

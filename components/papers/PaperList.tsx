@@ -10,10 +10,8 @@ import { PaperUserNote } from "@/components/papers/PaperUserNote";
 import { UserTagPicker } from "@/components/papers/UserTagPicker";
 import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
 import { StatusSelect, type PaperStatusAction } from "@/components/ui/StatusSelect";
-import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
+import { groupPapersByPublishedDate, shouldKeepPaperAfterLocalMutation, sortPapersForList, type PaperListMode, type PaperSortMode } from "@/lib/papers/list-view";
 import type { Paper, PaperStatus, UserTag } from "@/lib/papers/types";
-
-type PaperListMode = "inbox" | "archive" | "favorites";
 
 export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: PaperListMode; favoriteOnly?: boolean }) {
   const { trackSync } = useSyncStatus();
@@ -104,8 +102,9 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
     }
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
+    const visibilityFilters = getCurrentVisibilityFilters();
     setPapers((current) =>
-      !paperMatchesCurrentList(data.paper, listMode, status, selectedUserTagIds, parseKeywordTagQuery(keywordTagQuery), publishedFrom, publishedTo)
+      !shouldKeepPaperAfterLocalMutation(data.paper, visibilityFilters)
         ? current.filter((item) => item.id !== paper.id)
         : listMode === "favorites" && !data.paper.isFavorite
         ? current.filter((item) => item.id !== paper.id)
@@ -142,8 +141,9 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
     }
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
+    const visibilityFilters = getCurrentVisibilityFilters();
     setPapers((current) =>
-      paperMatchesCurrentList(data.paper, listMode, status, selectedUserTagIds, parseKeywordTagQuery(keywordTagQuery), publishedFrom, publishedTo)
+      shouldKeepPaperAfterLocalMutation(data.paper, visibilityFilters)
         ? current.map((item) => (item.id === paper.id ? { ...item, ...data.paper } : item))
         : current.filter((item) => item.id !== paper.id)
     );
@@ -202,6 +202,17 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
 
   function isLatestMutation(mutationKey: string, sequence: number): boolean {
     return mutationSequences.current.get(mutationKey) === sequence;
+  }
+
+  function getCurrentVisibilityFilters() {
+    return {
+      mode: listMode,
+      status,
+      selectedUserTagIds,
+      keywordTags: parseKeywordTagQuery(keywordTagQuery),
+      publishedFrom,
+      publishedTo
+    };
   }
 
   async function deleteNewMatchedPapers() {
@@ -539,22 +550,4 @@ function parseKeywordTagQuery(value: string): string[] {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
-}
-
-function paperMatchesCurrentList(
-  paper: Paper,
-  mode: PaperListMode,
-  status: PaperStatus | "all",
-  selectedUserTagIds: string[],
-  keywordTags: string[],
-  publishedFrom: string,
-  publishedTo: string
-): boolean {
-  if (mode === "favorites" && !paper.isFavorite) return false;
-  if (status !== "all" && paper.status !== status) return false;
-  if (selectedUserTagIds.length && !selectedUserTagIds.every((tagId) => paper.userTags.some((tag) => tag.id === tagId))) return false;
-  if (keywordTags.length && !keywordTags.every((tag) => paper.keywordTags.includes(tag))) return false;
-  if (publishedFrom && paper.publishedAt < `${publishedFrom}T00:00:00.000Z`) return false;
-  if (publishedTo && paper.publishedAt > `${publishedTo}T23:59:59.999Z`) return false;
-  return true;
 }

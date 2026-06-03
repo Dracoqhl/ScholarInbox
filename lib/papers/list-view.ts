@@ -1,6 +1,16 @@
-import type { Paper } from "@/lib/papers/types";
+import type { Paper, PaperStatus } from "@/lib/papers/types";
 
 export type PaperSortMode = "date" | "score";
+export type PaperListMode = "inbox" | "archive" | "favorites";
+
+export type PaperVisibilityFilters = {
+  mode: PaperListMode;
+  status: PaperStatus | "all";
+  selectedUserTagIds: string[];
+  keywordTags: string[];
+  publishedFrom: string;
+  publishedTo: string;
+};
 
 export type PaperDateGroup = {
   date: string;
@@ -28,6 +38,21 @@ export function groupPapersByPublishedDate(papers: Paper[]): PaperDateGroup[] {
 
 export function toDateKey(value: string): string {
   return new Date(value).toISOString().slice(0, 10);
+}
+
+export function shouldKeepPaperAfterLocalMutation(paper: Paper, filters: PaperVisibilityFilters): boolean {
+  if (filters.mode === "inbox") return true;
+  return paperMatchesVisibilityFilters(paper, filters);
+}
+
+export function paperMatchesVisibilityFilters(paper: Paper, filters: PaperVisibilityFilters): boolean {
+  if (filters.mode === "favorites" && !paper.isFavorite) return false;
+  if (filters.status !== "all" && paper.status !== filters.status) return false;
+  if (filters.selectedUserTagIds.length && !filters.selectedUserTagIds.every((tagId) => paper.userTags.some((tag) => tag.id === tagId))) return false;
+  if (filters.keywordTags.length && !filters.keywordTags.every((tag) => paper.keywordTags.includes(tag))) return false;
+  if (filters.publishedFrom && paper.publishedAt < `${filters.publishedFrom}T00:00:00.000Z`) return false;
+  if (filters.publishedTo && paper.publishedAt > `${filters.publishedTo}T23:59:59.999Z`) return false;
+  return true;
 }
 
 function compareScore(left: Paper, right: Paper): number {
