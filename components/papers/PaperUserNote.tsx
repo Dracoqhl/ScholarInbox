@@ -9,14 +9,17 @@ import type { Paper } from "@/lib/papers/types";
 export function PaperUserNote({
   paper,
   compact = false,
+  forceExpanded = false,
   onPaperChange
 }: {
   paper: Paper;
   compact?: boolean;
+  forceExpanded?: boolean;
   onPaperChange: (paper: Paper) => void;
 }) {
   const { markDirty, trackSync } = useSyncStatus();
   const [draft, setDraft] = useState(paper.userNote);
+  const [isExpanded, setIsExpanded] = useState(forceExpanded || !compact || Boolean(paper.userNote.trim()));
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSequence = useRef(0);
 
@@ -63,8 +66,21 @@ export function PaperUserNote({
     }
   }
 
+  if (compact && !forceExpanded && !isExpanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setIsExpanded(true)}
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs font-medium text-muted transition hover:border-accent hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
+        添加评论
+      </button>
+    );
+  }
+
   return (
-    <label className={`block rounded-md border border-line bg-background ${compact ? "mt-3 p-3" : "p-4"}`}>
+    <label className={`block rounded-md border border-line bg-background ${compact ? "p-3" : "p-4"}`}>
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted">
         <MessageSquare className="h-3.5 w-3.5" />
         我的评论
@@ -74,7 +90,7 @@ export function PaperUserNote({
         onChange={(event) => updateNote(event.target.value)}
         placeholder="写下收藏理由、方向无关原因，或后续精读时要注意的问题。"
         className={`mt-2 w-full resize-y rounded-md border border-line bg-surface px-3 py-2 text-sm leading-6 outline-none placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/25 ${
-          compact ? "min-h-16" : "min-h-28"
+          compact ? "min-h-14" : "min-h-28"
         }`}
       />
     </label>

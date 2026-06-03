@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, FileText, Github, Search } from "lucide-react";
+import { ExternalLink, FileText, Github, MessageSquare, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
@@ -419,8 +419,10 @@ function PaperCard({
   createUserTag: (input: { name: string; color: string }) => Promise<UserTag>;
   updateUserTags: (paperId: string, tags: UserTag[]) => Promise<void>;
 }) {
+  const [isNoteOpen, setIsNoteOpen] = useState(Boolean(paper.userNote.trim()));
+
   return (
-    <article className="rounded-md border border-line bg-surface p-4">
+    <article className="rounded-md border border-line bg-surface p-4 shadow-[0_1px_0_oklch(var(--line))]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -458,48 +460,67 @@ function PaperCard({
           <FavoriteButton isFavorite={paper.isFavorite} onClick={() => void updateFavorite(paper)} />
         </div>
       </div>
-      <div className="mt-3 border-t border-line pt-3">
-        <UserTagPicker
-          paperId={paper.id}
-          selectedTags={paper.userTags}
-          availableTags={userTags}
-          onCreateTag={createUserTag}
-          onChange={updateUserTags}
-        />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <a
-          href={paper.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
-        >
-          <ExternalLink className="h-4 w-4" />
-          arXiv
-        </a>
-        <a
-          href={paper.pdfUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
-        >
-          <FileText className="h-4 w-4" />
-          PDF
-        </a>
-        {paper.githubUrls.map((url) => (
+      <div className="mt-4 flex flex-col gap-3 border-t border-line pt-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <a
-            key={url}
-            href={url}
+            href={paper.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1.5 text-sm text-muted hover:border-accent hover:text-accent"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-line px-2.5 text-xs font-medium text-muted hover:border-accent hover:text-accent"
           >
-            <Github className="h-4 w-4" />
-            GitHub
+            <ExternalLink className="h-3.5 w-3.5" />
+            arXiv
           </a>
-        ))}
+          <a
+            href={paper.pdfUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-line px-2.5 text-xs font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            PDF
+          </a>
+          {paper.githubUrls.map((url) => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-line px-2.5 text-xs font-medium text-muted hover:border-accent hover:text-accent"
+            >
+              <Github className="h-3.5 w-3.5" />
+              GitHub
+            </a>
+          ))}
+          <button
+            type="button"
+            onClick={() => setIsNoteOpen((current) => !current)}
+            className={[
+              "inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-accent/30",
+              paper.userNote.trim()
+                ? "border-accent/40 bg-accent/10 text-accent hover:border-accent"
+                : "border-line text-muted hover:border-accent hover:text-accent"
+            ].join(" ")}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            {paper.userNote.trim() ? "编辑评论" : "评论"}
+          </button>
+        </div>
+        <div className="min-w-0 lg:max-w-[52%]">
+          <UserTagPicker
+            paperId={paper.id}
+            selectedTags={paper.userTags}
+            availableTags={userTags}
+            onCreateTag={createUserTag}
+            onChange={updateUserTags}
+          />
+        </div>
       </div>
-      <PaperUserNote key={paper.id} paper={paper} compact onPaperChange={updatePaperLocally} />
+      {isNoteOpen ? (
+        <div className="mt-3">
+          <PaperUserNote key={paper.id} paper={paper} compact forceExpanded onPaperChange={updatePaperLocally} />
+        </div>
+      ) : null}
     </article>
   );
 }

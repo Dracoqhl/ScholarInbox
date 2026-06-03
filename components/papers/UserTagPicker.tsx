@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { Plus, Tag, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { UserTag } from "@/lib/papers/types";
@@ -23,6 +23,7 @@ export function UserTagPicker({
   onChange: (paperId: string, tags: UserTag[]) => Promise<void>;
 }) {
   const [newTagName, setNewTagName] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const selectedIds = useMemo(() => new Set(selectedTags.map((tag) => tag.id)), [selectedTags]);
   const unselectedTags = availableTags.filter((tag) => !selectedIds.has(tag.id));
@@ -31,6 +32,7 @@ export function UserTagPicker({
     const tag = availableTags.find((item) => item.id === tagId);
     if (!tag) return;
     await onChange(paperId, [...selectedTags, tag]);
+    setIsOpen(false);
   }
 
   async function removeTag(tagId: string) {
@@ -47,19 +49,19 @@ export function UserTagPicker({
       if (!selectedIds.has(tag.id)) {
         await onChange(paperId, [...selectedTags, tag]);
       }
+      setIsOpen(false);
     } finally {
       setIsCreating(false);
     }
   }
 
   return (
-    <div className="space-y-2">
+    <div className="relative min-w-0">
       <div className="flex flex-wrap items-center gap-1.5">
-        {selectedTags.length === 0 ? <span className="text-xs text-muted">未添加自定义标签</span> : null}
         {selectedTags.map((tag) => (
           <span
             key={tag.id}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+            className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium"
             style={{ backgroundColor: `${tag.color}1a`, color: tag.color, border: `1px solid ${tag.color}55` }}
           >
             {tag.name}
@@ -75,8 +77,30 @@ export function UserTagPicker({
             </button>
           </span>
         ))}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setIsOpen((current) => !current)}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs font-medium text-muted transition hover:border-accent hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-expanded={isOpen}
+        >
+          {selectedTags.length ? <Plus className="h-3.5 w-3.5" /> : <Tag className="h-3.5 w-3.5" />}
+          {selectedTags.length ? "添加" : "标签"}
+        </button>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div
+        className={[
+          "absolute left-0 top-10 z-30 w-72 rounded-md border border-line bg-surface p-3 shadow-sm",
+          isOpen ? "block" : "hidden"
+        ].join(" ")}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-primary">自定义标签</span>
+          <button type="button" onClick={() => setIsOpen(false)} className="rounded p-1 text-muted hover:bg-background hover:text-primary" aria-label="关闭标签选择">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
         <select
           value=""
           disabled={disabled || unselectedTags.length === 0}
@@ -84,7 +108,7 @@ export function UserTagPicker({
             void addExistingTag(event.target.value);
             event.currentTarget.value = "";
           }}
-          className="h-8 rounded-md border border-line bg-background px-2 text-xs outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-8 min-w-32 flex-1 rounded-md border border-line bg-background px-2 text-xs outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
           aria-label="添加已有自定义标签"
         >
           <option value="">添加标签</option>
@@ -94,7 +118,7 @@ export function UserTagPicker({
             </option>
           ))}
         </select>
-        <label className="flex h-8 min-w-0 items-center rounded-md border border-line bg-background focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30">
+        <label className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-line bg-background focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30">
           <input
             value={newTagName}
             disabled={disabled || isCreating}
@@ -119,6 +143,7 @@ export function UserTagPicker({
             <Plus className="h-3.5 w-3.5" />
           </button>
         </label>
+        </div>
       </div>
     </div>
   );
