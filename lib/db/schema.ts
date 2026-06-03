@@ -45,6 +45,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
       status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
+      user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
     );
 
@@ -77,6 +78,7 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
   `);
   ensurePaperStatesSupportsIrrelevant(db);
   ensurePaperStatesSupportsGeneral(db);
+  ensurePaperStateUserNoteColumn(db);
   ensurePaperFilterColumns(db);
   ensurePaperAnalysisColumns(db);
   ensurePaperPdfAnalysisColumns(db);
@@ -86,6 +88,13 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_papers_filter_matched ON papers(filter_matched);
     CREATE INDEX IF NOT EXISTS idx_papers_filter_profile_hash ON papers(filter_profile_hash);
   `);
+}
+
+function ensurePaperStateUserNoteColumn(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(paper_states);").all<{ name: string }>().map((column) => column.name));
+  if (!columns.has("user_note")) {
+    db.exec("ALTER TABLE paper_states ADD COLUMN user_note TEXT NOT NULL DEFAULT '';");
+  }
 }
 
 function ensurePaperKeywordTagColumns(db: SqliteDatabase): void {
@@ -134,10 +143,11 @@ function ensurePaperStatesSupportsIrrelevant(db: SqliteDatabase): void {
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
       status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
+      user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
     );
-    INSERT INTO paper_states (paper_id, status, is_favorite, updated_at)
-    SELECT paper_id, status, is_favorite, updated_at FROM paper_states_old;
+    INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
+    SELECT paper_id, status, is_favorite, '', updated_at FROM paper_states_old;
     DROP TABLE paper_states_old;
   `);
 }
@@ -152,10 +162,11 @@ function ensurePaperStatesSupportsGeneral(db: SqliteDatabase): void {
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
       status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
+      user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
     );
-    INSERT INTO paper_states (paper_id, status, is_favorite, updated_at)
-    SELECT paper_id, status, is_favorite, updated_at FROM paper_states_old;
+    INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
+    SELECT paper_id, status, is_favorite, '', updated_at FROM paper_states_old;
     DROP TABLE paper_states_old;
   `);
 }

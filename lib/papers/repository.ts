@@ -52,8 +52,8 @@ class PaperRepository {
 
     this.db
       .prepare(
-        `INSERT INTO paper_states (paper_id, status, is_favorite, updated_at)
-         VALUES (@paperId, 'new', 0, @updatedAt)`
+        `INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
+         VALUES (@paperId, 'new', 0, '', @updatedAt)`
       )
       .run({ paperId: id, updatedAt: now });
 
@@ -272,11 +272,18 @@ class PaperRepository {
       .run({ id, status, updatedAt: new Date().toISOString() });
     return this.get(id);
   }
+
+  async setUserNote(id: string, userNote: string): Promise<Paper | null> {
+    this.db
+      .prepare("UPDATE paper_states SET user_note = @userNote, updated_at = @updatedAt WHERE paper_id = @id")
+      .run({ id, userNote, updatedAt: new Date().toISOString() });
+    return this.get(id);
+  }
 }
 
 function baseSelect(whereClause: string): string {
   return `
-    SELECT papers.*, paper_states.status, paper_states.is_favorite
+    SELECT papers.*, paper_states.status, paper_states.is_favorite, paper_states.user_note
     FROM papers
     JOIN paper_states ON paper_states.paper_id = papers.id
     ${whereClause}
@@ -326,6 +333,7 @@ function mapPaper(row: PaperRow): Paper {
     pdfUrl: row.pdf_url,
     status: row.status ?? "new",
     isFavorite: row.is_favorite === 1,
+    userNote: row.user_note ?? "",
     filterMatched: row.filter_matched === null ? null : row.filter_matched === 1,
     filterScore: row.filter_score,
     filterMethod: row.filter_method,

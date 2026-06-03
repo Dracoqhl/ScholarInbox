@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { ExternalLink, FileText, Github, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
+import { PaperUserNote } from "@/components/papers/PaperUserNote";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
 
@@ -13,8 +14,8 @@ export function PaperDetail({ id }: { id: string }) {
   const [paper, setPaper] = useState<Paper | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
+  const mutationSequences = useRef(new Map<string, number>());
 
   useEffect(() => {
     async function load() {
@@ -33,30 +34,57 @@ export function PaperDetail({ id }: { id: string }) {
 
   async function patchFavorite() {
     if (!paper) return;
-    setIsSaving(true);
+    const previousFavorite = paper.isFavorite;
+    const nextFavorite = !paper.isFavorite;
+    const mutationKey = `${paper.id}:favorite`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPaper({ ...paper, isFavorite: nextFavorite });
     const response = await fetch(`/api/papers/${paper.id}/favorite`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isFavorite: !paper.isFavorite })
+      body: JSON.stringify({ isFavorite: nextFavorite })
     });
-    setIsSaving(false);
-    if (!response.ok) return setError("收藏状态保存失败");
+    if (!response.ok) {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPaper((current) => (current ? { ...current, isFavorite: previousFavorite } : current));
+      }
+      return setError("收藏状态保存失败");
+    }
     const data = (await response.json()) as { paper: Paper };
-    setPaper(data.paper);
+    if (!isLatestMutation(mutationKey, sequence)) return;
+    setPaper((current) => (current ? { ...current, isFavorite: data.paper.isFavorite } : data.paper));
   }
 
   async function patchStatus(status: PaperStatus) {
     if (!paper) return;
-    setIsSaving(true);
+    const previousStatus = paper.status;
+    const mutationKey = `${paper.id}:status`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPaper({ ...paper, status });
     const response = await fetch(`/api/papers/${paper.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status })
     });
-    setIsSaving(false);
-    if (!response.ok) return setError("阅读状态保存失败");
+    if (!response.ok) {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPaper((current) => (current ? { ...current, status: previousStatus } : current));
+      }
+      return setError("阅读状态保存失败");
+    }
     const data = (await response.json()) as { paper: Paper };
-    setPaper(data.paper);
+    if (!isLatestMutation(mutationKey, sequence)) return;
+    setPaper((current) => (current ? { ...current, status: data.paper.status } : data.paper));
+  }
+
+  function nextMutationSequence(mutationKey: string): number {
+    const next = (mutationSequences.current.get(mutationKey) ?? 0) + 1;
+    mutationSequences.current.set(mutationKey, next);
+    return next;
+  }
+
+  function isLatestMutation(mutationKey: string, sequence: number): boolean {
+    return mutationSequences.current.get(mutationKey) === sequence;
   }
 
   async function generatePdfAnalysis() {
@@ -103,9 +131,12 @@ export function PaperDetail({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <StatusSelect value={paper.status} disabled={isSaving} onChange={(next) => void patchStatus(next)} />
-          <FavoriteButton isFavorite={paper.isFavorite} disabled={isSaving} onClick={() => void patchFavorite()} />
+          <StatusSelect value={paper.status} onChange={(next) => void patchStatus(next)} />
+          <FavoriteButton isFavorite={paper.isFavorite} onClick={() => void patchFavorite()} />
         </div>
+      </div>
+      <div className="mt-5 max-w-4xl">
+        <PaperUserNote key={paper.id} paper={paper} onPaperChange={setPaper} />
       </div>
       <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md border border-line bg-background p-4">
         <button

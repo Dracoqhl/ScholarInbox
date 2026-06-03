@@ -51,6 +51,7 @@ ScholarInbox/
       papers/route.ts
       papers/[id]/route.ts
       papers/[id]/favorite/route.ts
+      papers/[id]/note/route.ts
       papers/[id]/status/route.ts
       crawls/route.ts
       crawls/manual/route.ts
@@ -197,7 +198,7 @@ Expected core entities:
 - `crawl_runs`: each manual or scheduled crawl.
 - `filter_profiles`: saved research-interest descriptions.
 - `filter_results`: per-paper match result for a profile.
-- `paper_states`: reading status, archive state, and favorite flag.
+- `paper_states`: reading status, archive state, favorite flag, and the user's per-paper note.
 - `paper_analysis`: single-paper analysis results.
 - `app_settings`: non-secret app settings.
 
@@ -214,7 +215,7 @@ The current MVP includes:
 - `lib/db/database.ts`: CLI-backed SQLite wrapper using the system `sqlite3` command.
 - `lib/db/schema.ts`: schema creation for papers, paper states, crawl runs, and app settings.
 - `lib/db/app-database.ts`: app database initialization helper.
-- `lib/papers/repository.ts`: paper upsert, deduplication, list, detail, favorite, and status persistence.
+- `lib/papers/repository.ts`: paper upsert, deduplication, list, detail, favorite, user note, and status persistence.
 - `lib/sources/arxiv.ts`: arXiv query URL builder, fetcher, Atom parser, single-connection 3-second request throttle, and transient 429/5xx retry handling.
 - `lib/crawls/crawler.ts`: shared date-range arXiv crawl orchestration for manual and scheduled runs.
 - `lib/crawls/date-range.ts`: manual preset and scheduled previous-day date-range helpers.
@@ -223,8 +224,8 @@ The current MVP includes:
 - `lib/settings/repository.ts`: persisted categories, daily crawl time, and interest profile text.
 - `lib/ai/client.ts`: server-only OpenAI-compatible Responses API connection test helper.
 - `lib/filtering/**`: local prefiltering, interest profile hashing, batched Responses API filtering, and streaming SSE text parsing.
-- `app/api/**`: dynamic API routes for papers, favorites, statuses, crawls, manual crawl, settings, and AI API testing.
-- `components/papers/**`: paper list, detail view, status select, and favorite button.
+- `app/api/**`: dynamic API routes for papers, favorites, user notes, statuses, crawls, manual crawl, settings, and AI API testing.
+- `components/papers/**`: paper list, detail view, status select, favorite button, keyword tags, and auto-saving user note editor.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
 - `components/settings/SettingsForm.tsx`: crawl settings and API test UI, shown on `/crawls`.
 - `scripts/daily-crawl-scheduler.mjs`: script-managed daily scheduler that triggers scheduled crawls through the local API without opening another port.

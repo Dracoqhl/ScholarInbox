@@ -70,6 +70,17 @@ describe("paper repository", () => {
     expect((await repository.get(paper.id))?.status).toBe("general");
   });
 
+  it("persists a user note for a paper", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00140" }));
+
+    await repository.setUserNote(paper.id, "方向无关原因：主要是视觉语言任务。");
+
+    expect(await repository.get(paper.id)).toMatchObject({
+      userNote: "方向无关原因：主要是视觉语言任务。"
+    });
+  });
+
   it("can list only favorited papers", async () => {
     const repository = createPaperRepository(getDatabase(databasePath));
     const first = await repository.upsert(makePaperInput({ sourceId: "2401.00003", title: "Favorite" }));

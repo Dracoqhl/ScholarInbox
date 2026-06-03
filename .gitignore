@@ -12,3 +12,4 @@ data/
 npm-debug.log*
 pnpm-debug.log*
 *.tsbuildinfo
+.superpowers/

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { ExternalLink, FileText, Github, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
+import { PaperUserNote } from "@/components/papers/PaperUserNote";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
@@ -17,8 +18,8 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
   const [sortMode, setSortMode] = useState<PaperSortMode>("date");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
   const [isDeletingNew, setIsDeletingNew] = useState(false);
+  const mutationSequences = useRef(new Map<string, number>());
 
   const endpoint = useMemo(() => {
     const params = new URLSearchParams();
@@ -50,39 +51,66 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
   }, [loadPapers]);
 
   async function updateFavorite(paper: Paper) {
-    setPendingId(paper.id);
+    const previousFavorite = paper.isFavorite;
+    const nextFavorite = !paper.isFavorite;
+    const mutationKey = `${paper.id}:favorite`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: nextFavorite } : item)));
     const response = await fetch(`/api/papers/${paper.id}/favorite`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isFavorite: !paper.isFavorite })
+      body: JSON.stringify({ isFavorite: nextFavorite })
     });
-    setPendingId(null);
     if (!response.ok) {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite } : item)));
+      }
       setError("收藏状态保存失败");
       return;
     }
     const data = (await response.json()) as { paper: Paper };
+    if (!isLatestMutation(mutationKey, sequence)) return;
     setPapers((current) =>
       favoriteOnly && !data.paper.isFavorite
         ? current.filter((item) => item.id !== paper.id)
-        : current.map((item) => (item.id === paper.id ? data.paper : item))
+        : current.map((item) => (item.id === paper.id ? { ...item, isFavorite: data.paper.isFavorite } : item))
     );
   }
 
   async function updateStatus(paper: Paper, nextStatus: PaperStatus) {
-    setPendingId(paper.id);
+    const previousStatus = paper.status;
+    const mutationKey = `${paper.id}:status`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus } : item)));
     const response = await fetch(`/api/papers/${paper.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: nextStatus })
     });
-    setPendingId(null);
     if (!response.ok) {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus } : item)));
+      }
       setError("阅读状态保存失败");
       return;
     }
     const data = (await response.json()) as { paper: Paper };
-    setPapers((current) => current.map((item) => (item.id === paper.id ? data.paper : item)));
+    if (!isLatestMutation(mutationKey, sequence)) return;
+    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: data.paper.status } : item)));
+  }
+
+  function updatePaperLocally(nextPaper: Paper) {
+    setPapers((current) => current.map((item) => (item.id === nextPaper.id ? { ...item, ...nextPaper } : item)));
+  }
+
+  function nextMutationSequence(mutationKey: string): number {
+    const next = (mutationSequences.current.get(mutationKey) ?? 0) + 1;
+    mutationSequences.current.set(mutationKey, next);
+    return next;
+  }
+
+  function isLatestMutation(mutationKey: string, sequence: number): boolean {
+    return mutationSequences.current.get(mutationKey) === sequence;
   }
 
   async function deleteNewMatchedPapers() {
@@ -175,9 +203,9 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
                   <PaperCard
                     key={paper.id}
                     paper={paper}
-                    pendingId={pendingId}
                     updateStatus={updateStatus}
                     updateFavorite={updateFavorite}
+                    updatePaperLocally={updatePaperLocally}
                   />
                 ))}
               </div>
@@ -190,9 +218,9 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
             <PaperCard
               key={paper.id}
               paper={paper}
-              pendingId={pendingId}
               updateStatus={updateStatus}
               updateFavorite={updateFavorite}
+              updatePaperLocally={updatePaperLocally}
             />
           ))}
         </div>
@@ -207,14 +235,14 @@ function formatDate(value: string) {
 
 function PaperCard({
   paper,
-  pendingId,
   updateStatus,
-  updateFavorite
+  updateFavorite,
+  updatePaperLocally
 }: {
   paper: Paper;
-  pendingId: string | null;
   updateStatus: (paper: Paper, nextStatus: PaperStatus) => Promise<void>;
   updateFavorite: (paper: Paper) => Promise<void>;
+  updatePaperLocally: (paper: Paper) => void;
 }) {
   return (
     <article className="rounded-md border border-line bg-surface p-4">
@@ -251,8 +279,8 @@ function PaperCard({
           )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <StatusSelect value={paper.status} disabled={pendingId === paper.id} onChange={(next) => void updateStatus(paper, next)} />
-          <FavoriteButton isFavorite={paper.isFavorite} disabled={pendingId === paper.id} onClick={() => void updateFavorite(paper)} />
+          <StatusSelect value={paper.status} onChange={(next) => void updateStatus(paper, next)} />
+          <FavoriteButton isFavorite={paper.isFavorite} onClick={() => void updateFavorite(paper)} />
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
@@ -287,6 +315,7 @@ function PaperCard({
           </a>
         ))}
       </div>
+      <PaperUserNote key={paper.id} paper={paper} compact onPaperChange={updatePaperLocally} />
     </article>
   );
 }

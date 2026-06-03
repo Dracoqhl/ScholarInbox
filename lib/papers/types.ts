@@ -19,6 +19,7 @@ export type Paper = PaperInput & {
   id: string;
   status: PaperStatus;
   isFavorite: boolean;
+  userNote: string;
   filterMatched: boolean | null;
   filterScore: number | null;
   filterMethod: PaperFilterMethod | null;
@@ -144,4 +145,5 @@ export type PaperRow = {
   updated_record_at: string;
   status: PaperStatus | null;
   is_favorite: number | null;
+  user_note: string | null;
 };
