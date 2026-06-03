@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID } from "crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
 import type { CrawlLogEntry, CrawlRun, CrawlRunRow, CrawlStatus } from "@/lib/crawls/types";

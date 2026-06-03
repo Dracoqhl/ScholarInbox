@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 const RESEARCH_INTEREST_PATH = join(process.cwd(), "docs", "user-preferences", "research-interest.md");
 

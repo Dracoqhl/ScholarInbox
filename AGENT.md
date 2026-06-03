@@ -31,13 +31,15 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Favorite state is independent from reading status.
 - New matched papers should receive both homepage Chinese analysis and PDF-based detail analysis during crawl; the detail-page PDF action is for refresh or backfill.
 - API keys and secrets must stay server-side and must not be committed.
-- Current MVP can manually crawl arXiv date ranges, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
+- Current MVP can manually crawl arXiv date ranges, run daily scheduled arXiv crawls, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
 - Paper status includes `irrelevant` / `方向无关`. Before future filtering changes, check whether such papers exist and discuss calibration with the user before introducing broader filters.
 - `/settings` redirects to `/crawls`; crawl-related settings, API testing, and manual crawling are merged into `/crawls`.
 - Manual arXiv crawls default to the most recent 7 UTC dates because same-day `submittedDate` queries can return zero before arXiv publishes the latest batch.
+- Same-day date ranges are valid: `dateFrom` equal to `dateTo` means the full submitted-date window from local input `00:00` to `23:59`.
+- Daily scheduled crawl is managed by `scripts/daily-crawl-scheduler.mjs`, which is started and cleaned up by `scripts/start.sh` and `scripts/start-dev.sh`. It reads `dailyCrawlTime`, compares it against the server's local `HH:mm`, skips already completed/running same-day ranges, and calls the local `/api/crawls/manual` endpoint with `trigger: "scheduled"` for the previous server-local date.
 - arXiv legacy API requests must stay single-connection with at least 3 seconds between requests; the source fetcher includes in-process throttling and limited 429/5xx retries.
 - Settings UI includes a `测试 API` button backed by `POST /api/ai/test`. It tests server-side `AI_BASE_URL`, `AI_MODEL`, and `AI_API_KEY` through an OpenAI-compatible `/responses` call.
-- Current MVP does not yet implement daily scheduled crawl. PDF detail analysis runs automatically for matched crawl results and can be refreshed from the paper detail page.
+- PDF detail analysis runs automatically for matched crawl results and can be refreshed from the paper detail page.
 
 ## Documentation Rules
 
@@ -65,11 +67,12 @@ This file stores maintainer context for future Codex sessions. It is project mem
 6. Favorite persistence and UI toggle.
 7. Interest profile settings and filtering.
 8. Daily scheduled crawl.
-9. Single-paper analysis entry point.
+9. Paper analysis entry points and crawl-time analysis.
 
 ## Runtime Notes
 
 - Use `./scripts/start-dev.sh` for local compiled-run testing. It defaults to `PORT=3120`, `BIND_HOST=127.0.0.1`, and `DATABASE_PATH=$PWD/data/scholar-inbox.sqlite`.
 - Use `./scripts/start.sh` for personal-server access. It defaults to `BIND_HOST=0.0.0.0`.
 - API routes must remain `force-dynamic`; otherwise Next may evaluate database-backed routes at build time.
+- Set `SCHOLAR_INBOX_DISABLE_SCHEDULER=1` to disable the script-managed daily scheduler during isolated tests or one-off commands.
 - Do not commit `data/`, `.env.local`, `.next/`, or runtime SQLite files.

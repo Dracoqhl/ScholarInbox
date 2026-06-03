@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash } from "crypto";
 
 import { classifyPapersWithLlm } from "@/lib/filtering/llm-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";

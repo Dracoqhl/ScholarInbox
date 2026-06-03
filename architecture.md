@@ -11,7 +11,7 @@ The app owns four main workflows:
 - crawl papers from external sources
 - filter papers against the user's research interests
 - support reading state and favorites
-- run single-paper analysis during controlled testing
+- run crawl-time and detail-page paper analysis
 
 ## Planned Stack
 
@@ -75,6 +75,7 @@ ScholarInbox/
       types.ts
     crawls/
       crawler.ts
+      date-range.ts
       scheduler.ts
       repository.ts
     filtering/
@@ -97,8 +98,14 @@ ScholarInbox/
       plans/
       specs/
 
+  scripts/
+    daily-crawl-scheduler.mjs
+    start-dev.sh
+    start.sh
+
   tests/
     *.test.ts
+    *.test.mjs
 ```
 
 Create folders as they become necessary. Do not add empty directories just to match the planned tree.
@@ -144,6 +151,10 @@ Owns external paper source adapters.
 Owns crawl orchestration.
 
 - Manual date-range crawl and scheduled daily crawl should share the same core service.
+- Scheduled daily crawl is managed by `scripts/daily-crawl-scheduler.mjs`, which is started and cleaned up by `scripts/start.sh` and `scripts/start-dev.sh`.
+- The scheduler reads persisted `dailyCrawlTime`, compares it with server-local `HH:mm`, skips already completed or running same-day scheduled ranges, and calls the local `/api/crawls/manual` endpoint with `trigger: "scheduled"`.
+- Scheduled crawls target the previous server-local date.
+- Date ranges with identical start and end dates are valid and represent that full submitted-date day.
 - Crawl runs must record status and counts.
 - Deduplication belongs in the persistence path.
 
@@ -205,7 +216,9 @@ The current MVP includes:
 - `lib/db/app-database.ts`: app database initialization helper.
 - `lib/papers/repository.ts`: paper upsert, deduplication, list, detail, favorite, and status persistence.
 - `lib/sources/arxiv.ts`: arXiv query URL builder, fetcher, Atom parser, single-connection 3-second request throttle, and transient 429/5xx retry handling.
-- `lib/crawls/crawler.ts`: manual date-range arXiv crawl orchestration.
+- `lib/crawls/crawler.ts`: shared date-range arXiv crawl orchestration for manual and scheduled runs.
+- `lib/crawls/date-range.ts`: manual preset and scheduled previous-day date-range helpers.
+- `lib/crawls/scheduler.ts`: daily scheduled crawl tick logic, duplicate-run guard, and interval lifecycle.
 - `lib/crawls/repository.ts`: crawl run persistence.
 - `lib/settings/repository.ts`: persisted categories, daily crawl time, and interest profile text.
 - `lib/ai/client.ts`: server-only OpenAI-compatible Responses API connection test helper.
@@ -214,7 +227,6 @@ The current MVP includes:
 - `components/papers/**`: paper list, detail view, status select, and favorite button.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
 - `components/settings/SettingsForm.tsx`: crawl settings and API test UI, shown on `/crawls`.
-- `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use.
+- `scripts/daily-crawl-scheduler.mjs`: script-managed daily scheduler that triggers scheduled crawls through the local API without opening another port.
+- `scripts/start-dev.sh` and `scripts/start.sh`: compiled-run helpers for local testing and personal-server use; they start Next and the scheduler together and clean both up on exit.
 - `docs/user-preferences/research-interest.md`: maintained research-interest boundary for filter prompts and future calibration.
-
-The current MVP does not yet implement daily scheduled crawl or single-paper PDF analysis.

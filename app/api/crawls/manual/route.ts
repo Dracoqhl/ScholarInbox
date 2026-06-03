@@ -9,7 +9,8 @@ const bodySchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   categories: z.array(z.string().min(1)).optional(),
-  maxResults: z.number().int().min(1).max(500).optional()
+  maxResults: z.number().int().min(1).max(500).optional(),
+  trigger: z.enum(["manual", "scheduled"]).optional()
 });
 
 export const dynamic = "force-dynamic";
@@ -34,14 +35,15 @@ export async function POST(request: Request) {
               log: {
                 at: new Date().toISOString(),
                 level: "info",
-                message: "Accepted manual crawl request.",
+                message: `Accepted ${body.trigger ?? "manual"} crawl request.`,
                 stage: "submitted",
                 progress: { current: 0, total: 7, label: "请求已提交" },
                 details: {
                   categories,
                   dateFrom: body.dateFrom,
                   dateTo: body.dateTo,
-                  maxResults: body.maxResults
+                  maxResults: body.maxResults,
+                  trigger: body.trigger ?? "manual"
                 }
               }
             });
@@ -51,6 +53,7 @@ export async function POST(request: Request) {
               dateFrom: body.dateFrom,
               dateTo: body.dateTo,
               maxResults: body.maxResults,
+              trigger: body.trigger,
               onLog: (log) => send({ type: "log", log })
             });
             send({ type: "run", run });

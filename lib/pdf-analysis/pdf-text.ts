@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { execFileSync } from "child_process";
+import { randomUUID } from "crypto";
+import { rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import type { Paper } from "@/lib/papers/types";
 

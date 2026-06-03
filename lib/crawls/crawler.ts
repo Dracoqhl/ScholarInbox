@@ -16,6 +16,7 @@ export async function crawlArxivDateRange(input: {
   categories: string[];
   dateFrom: string;
   dateTo: string;
+  trigger?: "manual" | "scheduled";
   maxResults?: number;
   fetchPapers?: PaperSourceFetcher;
   filterPapers?: (papers: Awaited<ReturnType<PaperSourceFetcher>>, options: { interestProfile: string; profileHash: string }) => Promise<InterestFilterResult[]>;
@@ -41,7 +42,7 @@ export async function crawlArxivDateRange(input: {
 
     await appendLog({
       level: "info",
-      message: "Started manual arXiv crawl.",
+      message: `Started ${input.trigger ?? "manual"} arXiv crawl.`,
       stage: "started",
       progress: { current: 0, total: 7, label: "初始化抓取任务" },
       details: {

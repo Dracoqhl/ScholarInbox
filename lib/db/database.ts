@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { execFileSync } from "child_process";
+import { existsSync, mkdirSync } from "fs";
+import { dirname, isAbsolute, resolve } from "path";
 
 let database: SqliteDatabase | null = null;
 let databasePath: string | null = null;

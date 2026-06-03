@@ -55,6 +55,17 @@ describe("arXiv source", () => {
     expect(url.searchParams.get("max_results")).toBe("50");
   });
 
+  it("builds an inclusive submitted-date query for one selected day", () => {
+    const url = buildArxivQueryUrl({
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-02",
+      dateTo: "2024-01-02",
+      maxResults: 50
+    });
+
+    expect(decodeURIComponent(url.searchParams.get("search_query") ?? "")).toContain("submittedDate:[202401020000 TO 202401022359]");
+  });
+
   it("defaults to a larger crawl result limit", () => {
     const url = buildArxivQueryUrl({
       categories: ["cs.CL"],

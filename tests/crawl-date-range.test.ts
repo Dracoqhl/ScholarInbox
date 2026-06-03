@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getDefaultManualCrawlDateRange, getManualCrawlDateRangeForDays } from "../lib/crawls/date-range";
+import { getDefaultManualCrawlDateRange, getManualCrawlDateRangeForDays, getScheduledCrawlDateRange } from "../lib/crawls/date-range";
 
 describe("crawl date range defaults", () => {
   it("defaults manual crawls to the last seven UTC dates", () => {
@@ -23,6 +23,13 @@ describe("crawl date range defaults", () => {
     });
     expect(getManualCrawlDateRangeForDays(7, now)).toEqual({
       dateFrom: "2026-05-27",
+      dateTo: "2026-06-02"
+    });
+  });
+
+  it("targets the previous server-local date for scheduled daily crawls", () => {
+    expect(getScheduledCrawlDateRange(new Date(2026, 5, 3, 6, 0, 0))).toEqual({
+      dateFrom: "2026-06-02",
       dateTo: "2026-06-02"
     });
   });
