@@ -149,6 +149,7 @@ Owns external paper source adapters.
 - arXiv is the first source.
 - Source adapters normalize external records into internal paper input types.
 - UI and repositories should not depend on source-specific response shapes.
+- arXiv legacy API access uses one connection at a time, at least 3 seconds between requests, conservative small-page metadata queries, and longer retry backoff for timeouts, 429, and transient 5xx responses.
 
 ### `lib/crawls/`
 

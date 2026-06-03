@@ -76,6 +76,30 @@ describe("arXiv source", () => {
     expect(url.searchParams.get("max_results")).toBe("200");
   });
 
+  it("fetches arXiv results in conservative pages", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed(["2605.00001", "2605.00002"])))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed(["2605.00003", "2605.00004"])))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed(["2605.00005"])));
+
+    const papers = await fetchArxivPapers({ ...makeFetchOptions(), maxResults: 5 }, {
+      fetcher,
+      pageSize: 2,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    });
+
+    const urls = fetcher.mock.calls.map((call) => call[0] as URL);
+
+    expect(papers.map((paper) => paper.sourceId)).toEqual(["2605.00001", "2605.00002", "2605.00003", "2605.00004", "2605.00005"]);
+    expect(urls.map((url) => url.searchParams.get("start"))).toEqual(["0", "2", "4"]);
+    expect(urls.map((url) => url.searchParams.get("max_results"))).toEqual(["2", "2", "1"]);
+  });
+
   it("waits three seconds between arXiv API requests", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
@@ -103,7 +127,7 @@ describe("arXiv source", () => {
     expect(sleeps).toEqual([3000]);
   });
 
-  it("retries transient arXiv failures after the request delay", async () => {
+  it("retries transient arXiv failures after conservative backoff", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
     const sleeps: number[] = [];
@@ -121,7 +145,30 @@ describe("arXiv source", () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(sleeps).toEqual([3000]);
+    expect(sleeps).toEqual([30000]);
+    expect(papers).toHaveLength(1);
+  });
+
+  it("retries timed out arXiv requests with conservative backoff", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const sleeps: number[] = [];
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error("arXiv request timed out."))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed()));
+
+    const papers = await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      pageSize: 1,
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([30000]);
     expect(papers).toHaveLength(1);
   });
 
@@ -143,28 +190,35 @@ describe("arXiv source", () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(sleeps).toEqual([30000]);
+    expect(sleeps).toEqual([60000]);
     expect(papers).toHaveLength(1);
   });
 
   it("aborts arXiv requests that do not return", async () => {
     resetArxivRateLimitForTests();
     vi.useFakeTimers();
-    let signal: AbortSignal | undefined;
+    const signals: AbortSignal[] = [];
     const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
-      signal = init?.signal ?? undefined;
-      return new Promise<Response>((_resolve, reject) => {
-        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
-      });
+      const signal = init?.signal;
+      if (signal) signals.push(signal);
+      if (fetcher.mock.calls.length === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      }
+      return Promise.resolve(makeArxivResponse(sampleFeed()));
     });
 
     try {
-      const pending = fetchArxivPapers(makeFetchOptions(), { fetcher });
-      const rejection = expect(pending).rejects.toThrow("arXiv request timed out");
+      const pending = fetchArxivPapers(makeFetchOptions(), {
+        fetcher,
+        requestTimeoutMs: 45_000,
+        sleep: async () => {}
+      });
       await vi.advanceTimersByTimeAsync(45_000);
 
-      expect(signal?.aborted).toBe(true);
-      await rejection;
+      expect(signals[0]?.aborted).toBe(true);
+      await expect(pending).resolves.toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -188,19 +242,21 @@ function makeArxivResponse(body: string, overrides: { ok?: boolean; status?: num
   } as Response;
 }
 
-function sampleFeed(): string {
+function sampleFeed(sourceIds = ["2605.31584"]): string {
   return `
     <feed>
-      <entry>
-        <id>http://arxiv.org/abs/2605.31584v1</id>
-        <updated>2026-05-29T17:51:40Z</updated>
-        <published>2026-05-29T17:51:40Z</published>
-        <title>LongTraceRL</title>
-        <summary>Learning long-context reasoning.</summary>
-        <author><name>Ada Lovelace</name></author>
-        <arxiv:primary_category term="cs.CL"/>
-        <category term="cs.CL"/>
-      </entry>
+      ${sourceIds.map((sourceId) => `
+        <entry>
+          <id>http://arxiv.org/abs/${sourceId}v1</id>
+          <updated>2026-05-29T17:51:40Z</updated>
+          <published>2026-05-29T17:51:40Z</published>
+          <title>LongTraceRL ${sourceId}</title>
+          <summary>Learning long-context reasoning.</summary>
+          <author><name>Ada Lovelace</name></author>
+          <arxiv:primary_category term="cs.CL"/>
+          <category term="cs.CL"/>
+        </entry>
+      `).join("")}
     </feed>
   `;
 }
