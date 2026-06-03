@@ -43,10 +43,25 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      color TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_user_tags (
+      paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (paper_id, tag_id)
     );
 
     CREATE TABLE IF NOT EXISTS crawl_runs (
@@ -74,11 +89,13 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at);
     CREATE INDEX IF NOT EXISTS idx_papers_source_identity ON papers(source, source_id);
     CREATE INDEX IF NOT EXISTS idx_paper_states_favorite ON paper_states(is_favorite);
+    CREATE INDEX IF NOT EXISTS idx_paper_states_status ON paper_states(status);
+    CREATE INDEX IF NOT EXISTS idx_paper_user_tags_tag_id ON paper_user_tags(tag_id);
     CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at ON crawl_runs(started_at);
   `);
-  ensurePaperStatesSupportsIrrelevant(db);
-  ensurePaperStatesSupportsGeneral(db);
   ensurePaperStateUserNoteColumn(db);
+  ensurePaperStatesUseSimplifiedStatuses(db);
+  ensureUserTagTables(db);
   ensurePaperFilterColumns(db);
   ensurePaperAnalysisColumns(db);
   ensurePaperPdfAnalysisColumns(db);
@@ -133,41 +150,53 @@ function ensureCrawlRunLogColumn(db: SqliteDatabase): void {
   }
 }
 
-function ensurePaperStatesSupportsIrrelevant(db: SqliteDatabase): void {
+function ensurePaperStatesUseSimplifiedStatuses(db: SqliteDatabase): void {
   const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_states'").get<{ sql: string }>();
-  if (!table || table.sql.includes("'irrelevant'")) return;
+  if (!table) return;
+  const isSimplified = table.sql.includes("'new', 'archived', 'irrelevant'") && !table.sql.includes("'general'");
+  if (isSimplified) return;
 
   db.exec(`
     ALTER TABLE paper_states RENAME TO paper_states_old;
     CREATE TABLE paper_states (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+      status TEXT NOT NULL CHECK (status IN ('new', 'archived', 'irrelevant')),
       is_favorite INTEGER NOT NULL,
       user_note TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
     );
     INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
-    SELECT paper_id, status, is_favorite, '', updated_at FROM paper_states_old;
+    SELECT paper_id,
+           CASE WHEN status = 'new' THEN 'new'
+                WHEN status = 'irrelevant' THEN 'irrelevant'
+                ELSE 'archived'
+           END,
+           is_favorite,
+           COALESCE(user_note, ''),
+           updated_at
+    FROM paper_states_old;
     DROP TABLE paper_states_old;
   `);
 }
 
-function ensurePaperStatesSupportsGeneral(db: SqliteDatabase): void {
-  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'paper_states'").get<{ sql: string }>();
-  if (!table || table.sql.includes("'general'")) return;
-
+function ensureUserTagTables(db: SqliteDatabase): void {
   db.exec(`
-    ALTER TABLE paper_states RENAME TO paper_states_old;
-    CREATE TABLE paper_states (
-      paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
-      is_favorite INTEGER NOT NULL,
-      user_note TEXT NOT NULL DEFAULT '',
+    CREATE TABLE IF NOT EXISTS user_tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      color TEXT NOT NULL,
+      created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at)
-    SELECT paper_id, status, is_favorite, '', updated_at FROM paper_states_old;
-    DROP TABLE paper_states_old;
+
+    CREATE TABLE IF NOT EXISTS paper_user_tags (
+      paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (paper_id, tag_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_user_tags_tag_id ON paper_user_tags(tag_id);
   `);
 }
 

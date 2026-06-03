@@ -7,16 +7,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
 import { PaperUserNote } from "@/components/papers/PaperUserNote";
+import { UserTagPicker } from "@/components/papers/UserTagPicker";
 import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
-import { StatusSelect } from "@/components/ui/StatusSelect";
+import { StatusSelect, type PaperStatusAction } from "@/components/ui/StatusSelect";
 import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
-import type { Paper, PaperStatus } from "@/lib/papers/types";
+import type { Paper, PaperStatus, UserTag } from "@/lib/papers/types";
 
-export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) {
+type PaperListMode = "inbox" | "archive" | "favorites";
+
+export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: PaperListMode; favoriteOnly?: boolean }) {
   const { trackSync } = useSyncStatus();
+  const listMode = favoriteOnly ? "favorites" : mode;
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [userTags, setUserTags] = useState<UserTag[]>([]);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<PaperStatus | "all">("all");
+  const [status, setStatus] = useState<PaperStatus | "all">(listMode === "archive" ? "archived" : listMode === "inbox" ? "new" : "all");
+  const [selectedUserTagIds, setSelectedUserTagIds] = useState<string[]>([]);
+  const [keywordTagQuery, setKeywordTagQuery] = useState("");
+  const [publishedFrom, setPublishedFrom] = useState("");
+  const [publishedTo, setPublishedTo] = useState("");
   const [sortMode, setSortMode] = useState<PaperSortMode>("date");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +34,15 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
 
   const endpoint = useMemo(() => {
     const params = new URLSearchParams();
-    if (favoriteOnly) params.set("favorite", "true");
+    if (listMode === "favorites") params.set("favorite", "true");
     if (query.trim()) params.set("query", query.trim());
     if (status !== "all") params.set("status", status);
+    for (const tagId of selectedUserTagIds) params.append("userTagId", tagId);
+    for (const tag of parseKeywordTagQuery(keywordTagQuery)) params.append("keywordTag", tag);
+    if (publishedFrom.trim()) params.set("publishedFrom", publishedFrom.trim());
+    if (publishedTo.trim()) params.set("publishedTo", publishedTo.trim());
     return `/api/papers${params.toString() ? `?${params}` : ""}`;
-  }, [favoriteOnly, query, status]);
+  }, [keywordTagQuery, listMode, publishedFrom, publishedTo, query, selectedUserTagIds, status]);
 
   const sortedPapers = useMemo(() => sortPapersForList(papers, sortMode), [papers, sortMode]);
   const dateGroups = useMemo(() => groupPapersByPublishedDate(sortedPapers), [sortedPapers]);
@@ -52,12 +65,22 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     void loadPapers();
   }, [loadPapers]);
 
-  async function updateFavorite(paper: Paper) {
+  useEffect(() => {
+    async function loadUserTags() {
+      const response = await fetch("/api/user-tags");
+      if (!response.ok) return;
+      const data = (await response.json()) as { tags: UserTag[] };
+      setUserTags(data.tags);
+    }
+    void loadUserTags();
+  }, []);
+
+  async function updateFavorite(paper: Paper, nextFavorite = !paper.isFavorite) {
     const previousFavorite = paper.isFavorite;
-    const nextFavorite = !paper.isFavorite;
+    const previousStatus = paper.status;
     const mutationKey = `${paper.id}:favorite`;
     const sequence = nextMutationSequence(mutationKey);
-    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: nextFavorite } : item)));
+    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: nextFavorite, status: nextFavorite ? "archived" : item.status } : item)));
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/favorite`, {
@@ -67,14 +90,14 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
       }).then(throwIfNotOk));
     } catch {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite } : item)));
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite, status: previousStatus } : item)));
       }
       setError("收藏状态保存失败");
       return;
     }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite } : item)));
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite, status: previousStatus } : item)));
       }
       setError("收藏状态保存失败");
       return;
@@ -82,17 +105,20 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
     setPapers((current) =>
-      favoriteOnly && !data.paper.isFavorite
+      !paperMatchesCurrentList(data.paper, listMode, status, selectedUserTagIds, parseKeywordTagQuery(keywordTagQuery), publishedFrom, publishedTo)
         ? current.filter((item) => item.id !== paper.id)
-        : current.map((item) => (item.id === paper.id ? { ...item, isFavorite: data.paper.isFavorite } : item))
+        : listMode === "favorites" && !data.paper.isFavorite
+        ? current.filter((item) => item.id !== paper.id)
+        : current.map((item) => (item.id === paper.id ? { ...item, ...data.paper } : item))
     );
   }
 
   async function updateStatus(paper: Paper, nextStatus: PaperStatus) {
     const previousStatus = paper.status;
+    const previousFavorite = paper.isFavorite;
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
-    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus } : item)));
+    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus, isFavorite: nextStatus === "irrelevant" ? false : item.isFavorite } : item)));
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {
@@ -102,25 +128,70 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
       }).then(throwIfNotOk));
     } catch {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus } : item)));
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus, isFavorite: previousFavorite } : item)));
       }
       setError("阅读状态保存失败");
       return;
     }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus } : item)));
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus, isFavorite: previousFavorite } : item)));
       }
       setError("阅读状态保存失败");
       return;
     }
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
-    setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: data.paper.status } : item)));
+    setPapers((current) =>
+      paperMatchesCurrentList(data.paper, listMode, status, selectedUserTagIds, parseKeywordTagQuery(keywordTagQuery), publishedFrom, publishedTo)
+        ? current.map((item) => (item.id === paper.id ? { ...item, ...data.paper } : item))
+        : current.filter((item) => item.id !== paper.id)
+    );
+  }
+
+  async function updateStatusAction(paper: Paper, action: PaperStatusAction) {
+    if (action === "favorite") {
+      await updateFavorite(paper, true);
+      return;
+    }
+    await updateStatus(paper, action);
   }
 
   function updatePaperLocally(nextPaper: Paper) {
     setPapers((current) => current.map((item) => (item.id === nextPaper.id ? { ...item, ...nextPaper } : item)));
+  }
+
+  async function createUserTag(input: { name: string; color: string }): Promise<UserTag> {
+    const response = await trackSync(fetch("/api/user-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }).then(throwIfNotOk));
+    const data = (await response.json()) as { tag: UserTag };
+    setUserTags((current) => (current.some((tag) => tag.id === data.tag.id) ? current : [...current, data.tag]));
+    return data.tag;
+  }
+
+  async function updateUserTags(paperId: string, tags: UserTag[]) {
+    const previous = papers.find((paper) => paper.id === paperId)?.userTags ?? [];
+    const mutationKey = `${paperId}:user-tags`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPapers((current) => current.map((paper) => (paper.id === paperId ? { ...paper, userTags: tags } : paper)));
+    try {
+      const response = await trackSync(fetch(`/api/papers/${paperId}/user-tags`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagIds: tags.map((tag) => tag.id) })
+      }).then(throwIfNotOk));
+      const data = (await response.json()) as { paper: Paper };
+      if (!isLatestMutation(mutationKey, sequence)) return;
+      setPapers((current) => current.map((paper) => (paper.id === paperId ? { ...paper, ...data.paper } : paper)));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPapers((current) => current.map((paper) => (paper.id === paperId ? { ...paper, userTags: previous } : paper)));
+      }
+      setError("自定义标签保存失败");
+    }
   }
 
   function nextMutationSequence(mutationKey: string): number {
@@ -149,13 +220,17 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     <section className="space-y-4">
       <div className="flex flex-col gap-3 rounded-md border border-line bg-surface p-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold">{favoriteOnly ? "收藏论文" : "论文库"}</h2>
+          <h2 className="text-lg font-semibold">{listMode === "favorites" ? "收藏论文" : listMode === "archive" ? "归档论文" : "新论文"}</h2>
           <p className="mt-1 text-sm text-muted">
-            {favoriteOnly ? "回顾你标记过的高价值工作。" : "扫描匹配兴趣方向的论文，更新状态并收藏值得回看的工作。"}
+            {listMode === "favorites"
+              ? "回顾你标记过的高价值工作。"
+              : listMode === "archive"
+                ? "整理已经归档的论文，用自定义标签沉淀个人知识库。"
+                : "扫描新论文，归档方向一致的工作，收藏值得精读的论文。"}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          {!favoriteOnly ? (
+          {listMode === "inbox" ? (
             <button
               type="button"
               disabled={isDeletingNew}
@@ -182,10 +257,6 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
           >
             <option value="all">全部状态</option>
             <option value="new">新论文</option>
-            <option value="general">一般</option>
-            <option value="interested">感兴趣</option>
-            <option value="reading">阅读中</option>
-            <option value="done">已读</option>
             <option value="archived">归档</option>
             <option value="irrelevant">方向无关</option>
           </select>
@@ -200,6 +271,78 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
           </select>
         </div>
       </div>
+
+      {listMode === "archive" ? (
+        <div className="grid gap-3 rounded-md border border-line bg-surface p-4 md:grid-cols-4">
+          <label className="space-y-1 text-xs font-medium text-muted">
+            自定义标签
+            <select
+              value=""
+              onChange={(event) => {
+                const tagId = event.target.value;
+                if (tagId && !selectedUserTagIds.includes(tagId)) setSelectedUserTagIds((current) => [...current, tagId]);
+                event.currentTarget.value = "";
+              }}
+              className="h-10 w-full rounded-md border border-line bg-background px-3 text-sm text-primary outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            >
+              <option value="">添加筛选标签</option>
+              {userTags
+                .filter((tag) => !selectedUserTagIds.includes(tag.id))
+                .map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted">
+            AI 关键词
+            <input
+              value={keywordTagQuery}
+              onChange={(event) => setKeywordTagQuery(event.target.value)}
+              placeholder="GRPO, RLHF"
+              className="h-10 w-full rounded-md border border-line bg-background px-3 text-sm text-primary outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted">
+            开始日期
+            <input
+              type="date"
+              value={publishedFrom}
+              onChange={(event) => setPublishedFrom(event.target.value)}
+              className="h-10 w-full rounded-md border border-line bg-background px-3 text-sm text-primary outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted">
+            结束日期
+            <input
+              type="date"
+              value={publishedTo}
+              onChange={(event) => setPublishedTo(event.target.value)}
+              className="h-10 w-full rounded-md border border-line bg-background px-3 text-sm text-primary outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            />
+          </label>
+          {selectedUserTagIds.length ? (
+            <div className="flex flex-wrap gap-2 md:col-span-4">
+              {selectedUserTagIds.map((tagId) => {
+                const tag = userTags.find((item) => item.id === tagId);
+                if (!tag) return null;
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => setSelectedUserTagIds((current) => current.filter((item) => item !== tag.id))}
+                    className="rounded-md px-2 py-1 text-xs font-medium"
+                    style={{ backgroundColor: `${tag.color}1a`, color: tag.color, border: `1px solid ${tag.color}55` }}
+                  >
+                    {tag.name} ×
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? <p className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p> : null}
 
@@ -223,9 +366,12 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
                   <PaperCard
                     key={paper.id}
                     paper={paper}
-                    updateStatus={updateStatus}
+                    updateStatusAction={updateStatusAction}
                     updateFavorite={updateFavorite}
                     updatePaperLocally={updatePaperLocally}
+                    userTags={userTags}
+                    createUserTag={createUserTag}
+                    updateUserTags={updateUserTags}
                   />
                 ))}
               </div>
@@ -238,9 +384,12 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
             <PaperCard
               key={paper.id}
               paper={paper}
-              updateStatus={updateStatus}
+              updateStatusAction={updateStatusAction}
               updateFavorite={updateFavorite}
               updatePaperLocally={updatePaperLocally}
+              userTags={userTags}
+              createUserTag={createUserTag}
+              updateUserTags={updateUserTags}
             />
           ))}
         </div>
@@ -255,14 +404,20 @@ function formatDate(value: string) {
 
 function PaperCard({
   paper,
-  updateStatus,
+  updateStatusAction,
   updateFavorite,
-  updatePaperLocally
+  updatePaperLocally,
+  userTags,
+  createUserTag,
+  updateUserTags
 }: {
   paper: Paper;
-  updateStatus: (paper: Paper, nextStatus: PaperStatus) => Promise<void>;
-  updateFavorite: (paper: Paper) => Promise<void>;
+  updateStatusAction: (paper: Paper, action: PaperStatusAction) => Promise<void>;
+  updateFavorite: (paper: Paper, nextFavorite?: boolean) => Promise<void>;
   updatePaperLocally: (paper: Paper) => void;
+  userTags: UserTag[];
+  createUserTag: (input: { name: string; color: string }) => Promise<UserTag>;
+  updateUserTags: (paperId: string, tags: UserTag[]) => Promise<void>;
 }) {
   return (
     <article className="rounded-md border border-line bg-surface p-4">
@@ -299,9 +454,18 @@ function PaperCard({
           )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <StatusSelect value={paper.status} onChange={(next) => void updateStatus(paper, next)} />
+          <StatusSelect value={paper.isFavorite ? "favorite" : paper.status} onChange={(next) => void updateStatusAction(paper, next)} />
           <FavoriteButton isFavorite={paper.isFavorite} onClick={() => void updateFavorite(paper)} />
         </div>
+      </div>
+      <div className="mt-3 border-t border-line pt-3">
+        <UserTagPicker
+          paperId={paper.id}
+          selectedTags={paper.userTags}
+          availableTags={userTags}
+          onCreateTag={createUserTag}
+          onChange={updateUserTags}
+        />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <a
@@ -347,4 +511,29 @@ function formatScore(value: number | null): string {
 async function throwIfNotOk(response: Response): Promise<Response> {
   if (!response.ok) throw new Error("Paper update failed.");
   return response;
+}
+
+function parseKeywordTagQuery(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function paperMatchesCurrentList(
+  paper: Paper,
+  mode: PaperListMode,
+  status: PaperStatus | "all",
+  selectedUserTagIds: string[],
+  keywordTags: string[],
+  publishedFrom: string,
+  publishedTo: string
+): boolean {
+  if (mode === "favorites" && !paper.isFavorite) return false;
+  if (status !== "all" && paper.status !== status) return false;
+  if (selectedUserTagIds.length && !selectedUserTagIds.every((tagId) => paper.userTags.some((tag) => tag.id === tagId))) return false;
+  if (keywordTags.length && !keywordTags.every((tag) => paper.keywordTags.includes(tag))) return false;
+  if (publishedFrom && paper.publishedAt < `${publishedFrom}T00:00:00.000Z`) return false;
+  if (publishedTo && paper.publishedAt > `${publishedTo}T23:59:59.999Z`) return false;
+  return true;
 }

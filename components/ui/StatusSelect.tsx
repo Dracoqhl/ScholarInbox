@@ -4,13 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 import type { PaperStatus } from "@/lib/papers/types";
 
-const statusOptions: Array<{ value: PaperStatus; label: string }> = [
+export type PaperStatusAction = PaperStatus | "favorite";
+
+const statusOptions: Array<{ value: PaperStatusAction; label: string }> = [
   { value: "new", label: "新论文" },
-  { value: "general", label: "一般" },
-  { value: "interested", label: "感兴趣" },
-  { value: "reading", label: "阅读中" },
-  { value: "done", label: "已读" },
   { value: "archived", label: "归档" },
+  { value: "favorite", label: "收藏" },
   { value: "irrelevant", label: "方向无关" }
 ];
 
@@ -19,9 +18,9 @@ export function StatusSelect({
   disabled,
   onChange
 }: {
-  value: PaperStatus;
+  value: PaperStatusAction;
   disabled?: boolean;
-  onChange: (status: PaperStatus) => void;
+  onChange: (status: PaperStatusAction) => void;
 }) {
   const current = statusOptions.find((option) => option.value === value) ?? statusOptions[0];
   const [isOpen, setIsOpen] = useState(false);

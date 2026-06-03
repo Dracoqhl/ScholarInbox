@@ -1,5 +1,13 @@
-export type PaperStatus = "new" | "general" | "interested" | "reading" | "done" | "archived" | "irrelevant";
+export type PaperStatus = "new" | "archived" | "irrelevant";
 export type PaperFilterMethod = "llm" | "prefilter";
+
+export type UserTag = {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type PaperInput = {
   source: string;
@@ -47,6 +55,7 @@ export type Paper = PaperInput & {
   pdfAnalysisCheckedAt: string | null;
   pdfAnalysisError: string | null;
   keywordTags: string[];
+  userTags: UserTag[];
   githubUrls: string[];
   createdAt: string;
   updatedRecordAt: string;
@@ -57,6 +66,10 @@ export type PaperListFilters = {
   matched?: boolean;
   query?: string;
   status?: PaperStatus;
+  userTagIds?: string[];
+  keywordTags?: string[];
+  publishedFrom?: string;
+  publishedTo?: string;
 };
 
 export type PaperDeleteFilters = {
@@ -146,4 +159,5 @@ export type PaperRow = {
   status: PaperStatus | null;
   is_favorite: number | null;
   user_note: string | null;
+  user_tags_json: string | null;
 };

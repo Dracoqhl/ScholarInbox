@@ -4,6 +4,7 @@ import { SyncStatusBadge, SyncStatusProvider } from "@/components/sync/SyncStatu
 
 const navItems = [
   { href: "/", label: "论文" },
+  { href: "/archive", label: "归档" },
   { href: "/favorites", label: "收藏" },
   { href: "/crawls", label: "抓取" }
 ];

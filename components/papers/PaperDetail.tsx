@@ -7,13 +7,15 @@ import { useEffect, useRef, useState } from "react";
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
 import { PaperUserNote } from "@/components/papers/PaperUserNote";
+import { UserTagPicker } from "@/components/papers/UserTagPicker";
 import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
-import { StatusSelect } from "@/components/ui/StatusSelect";
-import type { Paper, PaperStatus } from "@/lib/papers/types";
+import { StatusSelect, type PaperStatusAction } from "@/components/ui/StatusSelect";
+import type { Paper, PaperStatus, UserTag } from "@/lib/papers/types";
 
 export function PaperDetail({ id }: { id: string }) {
   const { trackSync } = useSyncStatus();
   const [paper, setPaper] = useState<Paper | null>(null);
+  const [userTags, setUserTags] = useState<UserTag[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
@@ -34,13 +36,23 @@ export function PaperDetail({ id }: { id: string }) {
     void load();
   }, [id]);
 
+  useEffect(() => {
+    async function loadUserTags() {
+      const response = await fetch("/api/user-tags");
+      if (!response.ok) return;
+      const data = (await response.json()) as { tags: UserTag[] };
+      setUserTags(data.tags);
+    }
+    void loadUserTags();
+  }, []);
+
   async function patchFavorite() {
     if (!paper) return;
     const previousFavorite = paper.isFavorite;
     const nextFavorite = !paper.isFavorite;
     const mutationKey = `${paper.id}:favorite`;
     const sequence = nextMutationSequence(mutationKey);
-    setPaper({ ...paper, isFavorite: nextFavorite });
+    setPaper({ ...paper, isFavorite: nextFavorite, status: nextFavorite ? "archived" : paper.status });
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/favorite`, {
@@ -62,15 +74,16 @@ export function PaperDetail({ id }: { id: string }) {
     }
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
-    setPaper((current) => (current ? { ...current, isFavorite: data.paper.isFavorite } : data.paper));
+    setPaper((current) => (current ? { ...current, ...data.paper } : data.paper));
   }
 
   async function patchStatus(status: PaperStatus) {
     if (!paper) return;
     const previousStatus = paper.status;
+    const previousFavorite = paper.isFavorite;
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
-    setPaper({ ...paper, status });
+    setPaper({ ...paper, status, isFavorite: status === "irrelevant" ? false : paper.isFavorite });
     let response: Response;
     try {
       response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {
@@ -80,19 +93,66 @@ export function PaperDetail({ id }: { id: string }) {
       }).then(throwIfNotOk));
     } catch {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPaper((current) => (current ? { ...current, status: previousStatus } : current));
+        setPaper((current) => (current ? { ...current, status: previousStatus, isFavorite: previousFavorite } : current));
       }
       return setError("阅读状态保存失败");
     }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
-        setPaper((current) => (current ? { ...current, status: previousStatus } : current));
+        setPaper((current) => (current ? { ...current, status: previousStatus, isFavorite: previousFavorite } : current));
       }
       return setError("阅读状态保存失败");
     }
     const data = (await response.json()) as { paper: Paper };
     if (!isLatestMutation(mutationKey, sequence)) return;
-    setPaper((current) => (current ? { ...current, status: data.paper.status } : data.paper));
+    setPaper((current) => (current ? { ...current, ...data.paper } : data.paper));
+  }
+
+  async function patchStatusAction(action: PaperStatusAction) {
+    if (action === "favorite") {
+      await patchFavoriteTo(true);
+      return;
+    }
+    await patchStatus(action);
+  }
+
+  async function patchFavoriteTo(nextFavorite: boolean) {
+    if (!paper || paper.isFavorite === nextFavorite) return;
+    await patchFavorite();
+  }
+
+  async function createUserTag(input: { name: string; color: string }): Promise<UserTag> {
+    const response = await trackSync(fetch("/api/user-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }).then(throwIfNotOk));
+    const data = (await response.json()) as { tag: UserTag };
+    setUserTags((current) => (current.some((tag) => tag.id === data.tag.id) ? current : [...current, data.tag]));
+    return data.tag;
+  }
+
+  async function updateUserTags(paperId: string, tags: UserTag[]) {
+    if (!paper) return;
+    const previous = paper.userTags;
+    const mutationKey = `${paperId}:user-tags`;
+    const sequence = nextMutationSequence(mutationKey);
+    setPaper({ ...paper, userTags: tags });
+    try {
+      const response = await trackSync(fetch(`/api/papers/${paperId}/user-tags`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagIds: tags.map((tag) => tag.id) })
+      }).then(throwIfNotOk));
+      const data = (await response.json()) as { paper: Paper };
+      if (!isLatestMutation(mutationKey, sequence)) return;
+      setPaper((current) => (current ? { ...current, ...data.paper } : data.paper));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPaper((current) => (current ? { ...current, userTags: previous } : current));
+      }
+      setError("自定义标签保存失败");
+    }
   }
 
   function nextMutationSequence(mutationKey: string): number {
@@ -149,9 +209,18 @@ export function PaperDetail({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <StatusSelect value={paper.status} onChange={(next) => void patchStatus(next)} />
+          <StatusSelect value={paper.isFavorite ? "favorite" : paper.status} onChange={(next) => void patchStatusAction(next)} />
           <FavoriteButton isFavorite={paper.isFavorite} onClick={() => void patchFavorite()} />
         </div>
+      </div>
+      <div className="mt-4 max-w-4xl rounded-md border border-line bg-background p-4">
+        <UserTagPicker
+          paperId={paper.id}
+          selectedTags={paper.userTags}
+          availableTags={userTags}
+          onCreateTag={createUserTag}
+          onChange={updateUserTags}
+        />
       </div>
       <div className="mt-5 max-w-4xl">
         <PaperUserNote key={paper.id} paper={paper} onPaperChange={setPaper} />

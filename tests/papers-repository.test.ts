@@ -39,17 +39,16 @@ describe("paper repository", () => {
     expect(papers[0].title).toBe("Updated title");
   });
 
-  it("persists favorite state and reading status independently", async () => {
+  it("archives a paper when it is favorited", async () => {
     const repository = createPaperRepository(getDatabase(databasePath));
     const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00002" }));
 
     await repository.setFavorite(paper.id, true);
-    await repository.setStatus(paper.id, "done");
 
     const updated = await repository.get(paper.id);
 
     expect(updated?.isFavorite).toBe(true);
-    expect(updated?.status).toBe("done");
+    expect(updated?.status).toBe("archived");
   });
 
   it("persists papers marked as irrelevant to the research direction", async () => {
@@ -61,13 +60,51 @@ describe("paper repository", () => {
     expect((await repository.get(paper.id))?.status).toBe("irrelevant");
   });
 
-  it("persists papers marked as generally understood", async () => {
-    const repository = createPaperRepository(getDatabase(databasePath));
+  it("normalizes legacy reading states to archived", async () => {
+    const db = getDatabase(databasePath);
+    const repository = createPaperRepository(db);
     const { paper } = await repository.upsert(makePaperInput({ sourceId: "2401.00120" }));
 
-    await repository.setStatus(paper.id, "general");
+    db.exec(`
+      DROP TABLE paper_states;
+      CREATE TABLE paper_states (
+        paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('new', 'general', 'interested', 'reading', 'done', 'archived', 'irrelevant')),
+        is_favorite INTEGER NOT NULL,
+        user_note TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+    `);
+    db
+      .prepare("INSERT INTO paper_states (paper_id, status, is_favorite, user_note, updated_at) VALUES (@id, 'reading', 0, '', @updatedAt)")
+      .run({ id: paper.id, updatedAt: "2026-06-02T00:00:00.000Z" });
 
-    expect((await repository.get(paper.id))?.status).toBe("general");
+    ensureDatabaseSchema(db);
+
+    expect((await repository.get(paper.id))?.status).toBe("archived");
+  });
+
+  it("creates custom user tags, assigns multiple tags, and filters archived papers by tag and date", async () => {
+    const repository = createPaperRepository(getDatabase(databasePath));
+    const reasoning = await repository.createUserTag({ name: "推理后训练", color: "#2563eb" });
+    const agent = await repository.createUserTag({ name: "Agent 架构", color: "#16a34a" });
+    const target = await repository.upsert(makePaperInput({ sourceId: "2401.00120", title: "Target", publishedAt: "2026-06-02T08:00:00.000Z" }));
+    const other = await repository.upsert(makePaperInput({ sourceId: "2401.00121", title: "Other", publishedAt: "2026-05-01T08:00:00.000Z" }));
+
+    await repository.setStatus(target.paper.id, "archived");
+    await repository.setStatus(other.paper.id, "archived");
+    await repository.setUserTags(target.paper.id, [reasoning.id, agent.id]);
+    await repository.setUserTags(other.paper.id, [agent.id]);
+
+    const papers = await repository.list({
+      status: "archived",
+      userTagIds: [reasoning.id],
+      publishedFrom: "2026-06-01",
+      publishedTo: "2026-06-30"
+    });
+
+    expect(papers.map((paper) => paper.title)).toEqual(["Target"]);
+    expect(papers[0].userTags.map((tag) => tag.name).sort()).toEqual(["Agent 架构", "推理后训练"]);
   });
 
   it("persists a user note for a paper", async () => {
@@ -156,7 +193,7 @@ describe("paper repository", () => {
     const interestedMatched = await repository.upsert(makePaperInput({ sourceId: "2401.00012", title: "Keep interested" }));
     const newUnmatched = await repository.upsert(makePaperInput({ sourceId: "2401.00013", title: "Keep unmatched" }));
 
-    await repository.setStatus(interestedMatched.paper.id, "interested");
+    await repository.setStatus(interestedMatched.paper.id, "archived");
     await repository.setFilterResult(newMatched.paper.id, makeFilterResult(true, 0.9));
     await repository.setFilterResult(interestedMatched.paper.id, makeFilterResult(true, 0.8));
     await repository.setFilterResult(newUnmatched.paper.id, makeFilterResult(false, 0.1));

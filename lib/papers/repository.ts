@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 
 import type { SqliteDatabase } from "@/lib/db/database";
 import { extractGithubUrls } from "@/lib/papers/github-links";
-import type { Paper, PaperAnalysisResult, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperPdfAnalysisResult, PaperRow, PaperStatus } from "@/lib/papers/types";
+import type { Paper, PaperAnalysisResult, PaperDeleteFilters, PaperFilterResult, PaperInput, PaperListFilters, PaperPdfAnalysisResult, PaperRow, PaperStatus, UserTag } from "@/lib/papers/types";
 
 export function createPaperRepository(db: SqliteDatabase) {
   return new PaperRepository(db);
@@ -77,6 +77,36 @@ class PaperRepository {
     if (filters.status) {
       where.push("paper_states.status = @status");
       params.status = filters.status;
+    }
+
+    if (filters.userTagIds?.length) {
+      filters.userTagIds.forEach((tagId, index) => {
+        where.push(
+          `EXISTS (
+             SELECT 1 FROM paper_user_tags user_tag_filter_${index}
+             WHERE user_tag_filter_${index}.paper_id = papers.id
+               AND user_tag_filter_${index}.tag_id = @userTagId${index}
+           )`
+        );
+        params[`userTagId${index}`] = tagId;
+      });
+    }
+
+    if (filters.keywordTags?.length) {
+      filters.keywordTags.forEach((tag, index) => {
+        where.push("papers.keyword_tags_json LIKE @keywordTag" + index);
+        params[`keywordTag${index}`] = `%${JSON.stringify(tag)}%`;
+      });
+    }
+
+    if (filters.publishedFrom?.trim()) {
+      where.push("papers.published_at >= @publishedFrom");
+      params.publishedFrom = toDateBoundary(filters.publishedFrom, "start");
+    }
+
+    if (filters.publishedTo?.trim()) {
+      where.push("papers.published_at <= @publishedTo");
+      params.publishedTo = toDateBoundary(filters.publishedTo, "end");
     }
 
     if (filters.matched !== undefined) {
@@ -260,15 +290,17 @@ class PaperRepository {
   }
 
   async setFavorite(id: string, isFavorite: boolean): Promise<Paper | null> {
+    const statusAssignment = isFavorite ? ", status = 'archived'" : "";
     this.db
-      .prepare("UPDATE paper_states SET is_favorite = @isFavorite, updated_at = @updatedAt WHERE paper_id = @id")
+      .prepare(`UPDATE paper_states SET is_favorite = @isFavorite${statusAssignment}, updated_at = @updatedAt WHERE paper_id = @id`)
       .run({ id, isFavorite: isFavorite ? 1 : 0, updatedAt: new Date().toISOString() });
     return this.get(id);
   }
 
   async setStatus(id: string, status: PaperStatus): Promise<Paper | null> {
+    const favoriteAssignment = status === "irrelevant" ? ", is_favorite = 0" : "";
     this.db
-      .prepare("UPDATE paper_states SET status = @status, updated_at = @updatedAt WHERE paper_id = @id")
+      .prepare(`UPDATE paper_states SET status = @status${favoriteAssignment}, updated_at = @updatedAt WHERE paper_id = @id`)
       .run({ id, status, updatedAt: new Date().toISOString() });
     return this.get(id);
   }
@@ -279,11 +311,83 @@ class PaperRepository {
       .run({ id, userNote, updatedAt: new Date().toISOString() });
     return this.get(id);
   }
+
+  async listUserTags(): Promise<UserTag[]> {
+    const rows = this.db
+      .prepare("SELECT id, name, color, created_at, updated_at FROM user_tags ORDER BY name COLLATE NOCASE ASC")
+      .all<UserTagRow>();
+    return rows.map(mapUserTag);
+  }
+
+  async createUserTag(input: { name: string; color: string }): Promise<UserTag> {
+    const name = normalizeUserTagName(input.name);
+    const color = normalizeUserTagColor(input.color);
+    const now = new Date().toISOString();
+    const existing = this.findUserTagByName(name);
+    if (existing) return existing;
+
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO user_tags (id, name, color, created_at, updated_at)
+         VALUES (@id, @name, @color, @createdAt, @updatedAt)`
+      )
+      .run({ id, name, color, createdAt: now, updatedAt: now });
+    return this.findUserTagById(id) as UserTag;
+  }
+
+  async setUserTags(paperId: string, tagIds: string[]): Promise<Paper | null> {
+    const uniqueTagIds = [...new Set(tagIds.map((tagId) => tagId.trim()).filter(Boolean))];
+    const now = new Date().toISOString();
+    this.db.prepare("DELETE FROM paper_user_tags WHERE paper_id = @paperId").run({ paperId });
+    for (const tagId of uniqueTagIds) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO paper_user_tags (paper_id, tag_id, created_at)
+           VALUES (@paperId, @tagId, @createdAt)`
+        )
+        .run({ paperId, tagId, createdAt: now });
+    }
+    return this.get(paperId);
+  }
+
+  private findUserTagByName(name: string): UserTag | null {
+    const row = this.db
+      .prepare("SELECT id, name, color, created_at, updated_at FROM user_tags WHERE name = @name COLLATE NOCASE")
+      .get<UserTagRow>({ name });
+    return row ? mapUserTag(row) : null;
+  }
+
+  private findUserTagById(id: string): UserTag | null {
+    const row = this.db
+      .prepare("SELECT id, name, color, created_at, updated_at FROM user_tags WHERE id = @id")
+      .get<UserTagRow>({ id });
+    return row ? mapUserTag(row) : null;
+  }
 }
 
 function baseSelect(whereClause: string): string {
   return `
-    SELECT papers.*, paper_states.status, paper_states.is_favorite, paper_states.user_note
+    SELECT papers.*,
+           paper_states.status,
+           paper_states.is_favorite,
+           paper_states.user_note,
+           COALESCE((
+             SELECT '[' || group_concat(tag_json) || ']'
+             FROM (
+               SELECT json_object(
+                 'id', user_tags.id,
+                 'name', user_tags.name,
+                 'color', user_tags.color,
+                 'createdAt', user_tags.created_at,
+                 'updatedAt', user_tags.updated_at
+               ) AS tag_json
+               FROM paper_user_tags
+               JOIN user_tags ON user_tags.id = paper_user_tags.tag_id
+               WHERE paper_user_tags.paper_id = papers.id
+               ORDER BY user_tags.name COLLATE NOCASE ASC
+             )
+           ), '[]') AS user_tags_json
     FROM papers
     JOIN paper_states ON paper_states.paper_id = papers.id
     ${whereClause}
@@ -361,6 +465,7 @@ function mapPaper(row: PaperRow): Paper {
     pdfAnalysisCheckedAt: row.pdf_analysis_checked_at,
     pdfAnalysisError: row.pdf_analysis_error,
     keywordTags: parseKeywordTags(row.keyword_tags_json),
+    userTags: parseUserTags(row.user_tags_json),
     githubUrls: extractGithubUrls(row.abstract),
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
@@ -390,4 +495,65 @@ function normalizeKeywordTags(value: unknown): string[] {
     if (tags.length >= 5) break;
   }
   return tags;
+}
+
+type UserTagRow = {
+  id: string;
+  name: string;
+  color: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapUserTag(row: UserTagRow): UserTag {
+  return {
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function parseUserTags(value: string | null): UserTag[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isUserTag);
+  } catch {
+    return [];
+  }
+}
+
+function isUserTag(value: unknown): value is UserTag {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<UserTag>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.color === "string" &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.updatedAt === "string"
+  );
+}
+
+function normalizeUserTagName(value: string): string {
+  const name = value.trim().replace(/\s+/g, " ");
+  if (!name) throw new Error("User tag name is required.");
+  if (name.length > 32) throw new Error("User tag name must be 32 characters or fewer.");
+  return name;
+}
+
+function normalizeUserTagColor(value: string): string {
+  const color = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : "#2563eb";
+}
+
+function toDateBoundary(value: string, side: "start" | "end"): string {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T${side === "start" ? "00:00:00.000" : "23:59:59.999"}Z`;
+  }
+  return trimmed;
 }
