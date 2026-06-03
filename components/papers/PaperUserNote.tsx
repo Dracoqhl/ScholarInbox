@@ -3,9 +3,8 @@
 import { MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
 import type { Paper } from "@/lib/papers/types";
-
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "failed";
 
 export function PaperUserNote({
   paper,
@@ -16,9 +15,8 @@ export function PaperUserNote({
   compact?: boolean;
   onPaperChange: (paper: Paper) => void;
 }) {
+  const { markDirty, trackSync } = useSyncStatus();
   const [draft, setDraft] = useState(paper.userNote);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSequence = useRef(0);
 
@@ -30,50 +28,46 @@ export function PaperUserNote({
 
   function updateNote(value: string) {
     setDraft(value);
-    setSaveState("dirty");
     onPaperChange({ ...paper, userNote: value });
+    const dirtyVersion = markDirty();
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const sequence = saveSequence.current + 1;
     saveSequence.current = sequence;
     saveTimer.current = setTimeout(() => {
-      void saveNote(paper.id, value, sequence);
+      void saveNote(paper.id, value, sequence, dirtyVersion);
     }, 700);
   }
 
-  async function saveNote(paperId: string, value: string, sequence: number) {
-    setSaveState("saving");
+  async function saveNote(paperId: string, value: string, sequence: number, dirtyVersion: number) {
     try {
-      const response = await fetch(`/api/papers/${paperId}/note`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userNote: value })
-      });
+      const response = await trackSync(
+        fetch(`/api/papers/${paperId}/note`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userNote: value })
+        }).then(throwIfNotOk),
+        {
+          cleanDirtyVersion: dirtyVersion,
+          shouldApply: () => saveSequence.current === sequence
+        }
+      );
       const data = (await response.json()) as { paper?: Paper; error?: string };
       if (!response.ok || !data.paper) {
         throw new Error(data.error ?? "User note save failed.");
       }
       if (saveSequence.current !== sequence) return;
       onPaperChange({ ...data.paper, userNote: value });
-      setLastSavedAt(new Date());
-      setSaveState("saved");
     } catch {
-      if (saveSequence.current === sequence) {
-        setSaveState("failed");
-      }
+      // Global sync status reports current save failures. Keep the local draft intact.
     }
   }
 
   return (
     <label className={`block rounded-md border border-line bg-background ${compact ? "mt-3 p-3" : "p-4"}`}>
-      <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted">
-        <span className="inline-flex items-center gap-1.5">
-          <MessageSquare className="h-3.5 w-3.5" />
-          我的评论
-        </span>
-        <span aria-label="评论保存状态" className={saveStatusClass(saveState)}>
-          {formatSaveStatus(saveState, lastSavedAt)}
-        </span>
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted">
+        <MessageSquare className="h-3.5 w-3.5" />
+        我的评论
       </span>
       <textarea
         value={draft}
@@ -87,18 +81,9 @@ export function PaperUserNote({
   );
 }
 
-function saveStatusClass(saveState: SaveState): string {
-  if (saveState === "dirty" || saveState === "saving") return "text-accent";
-  if (saveState === "failed") return "text-danger";
-  return "text-muted";
-}
-
-function formatSaveStatus(saveState: SaveState, lastSavedAt: Date | null): string {
-  if (saveState === "dirty") return "未保存";
-  if (saveState === "saving") return "保存中...";
-  if (saveState === "failed") return "保存失败，继续编辑后会重试";
-  if (saveState === "saved" && lastSavedAt) {
-    return `已保存 ${lastSavedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+async function throwIfNotOk(response: Response): Promise<Response> {
+  if (!response.ok) {
+    throw new Error("User note save failed.");
   }
-  return "已保存";
+  return response;
 }

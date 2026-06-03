@@ -225,7 +225,8 @@ The current MVP includes:
 - `lib/ai/client.ts`: server-only OpenAI-compatible Responses API connection test helper.
 - `lib/filtering/**`: local prefiltering, interest profile hashing, batched Responses API filtering, and streaming SSE text parsing.
 - `app/api/**`: dynamic API routes for papers, favorites, user notes, statuses, crawls, manual crawl, settings, and AI API testing.
-- `components/papers/**`: paper list, detail view, status select, favorite button, keyword tags, and auto-saving user note editor.
+- `components/papers/**`: paper list, detail view, controlled status select, favorite button, keyword tags, and auto-saving user note editor.
+- `components/sync/SyncStatusProvider.tsx`: global optimistic-write status provider and sticky-header save status badge.
 - `components/crawls/ManualCrawlForm.tsx`: manual date-range crawl UI, defaulting to the most recent 7 UTC dates.
 - `components/settings/SettingsForm.tsx`: crawl settings and API test UI, shown on `/crawls`.
 - `scripts/daily-crawl-scheduler.mjs`: script-managed daily scheduler that triggers scheduled crawls through the local API without opening another port.

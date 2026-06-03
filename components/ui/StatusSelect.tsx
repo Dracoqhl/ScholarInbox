@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 import type { PaperStatus } from "@/lib/papers/types";
 
 const statusOptions: Array<{ value: PaperStatus; label: string }> = [
@@ -22,24 +24,61 @@ export function StatusSelect({
   onChange: (status: PaperStatus) => void;
 }) {
   const current = statusOptions.find((option) => option.value === value) ?? statusOptions[0];
+  const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   return (
-    <div className="group relative inline-block">
+    <div
+      ref={rootRef}
+      className="relative inline-block"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
       <button
         type="button"
         disabled={disabled}
+        onClick={() => setIsOpen(true)}
+        onFocus={() => setIsOpen(true)}
         className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+        aria-expanded={isOpen}
         aria-label="阅读状态"
       >
         {current.label}
       </button>
-      <div className="invisible absolute right-0 top-full z-20 mt-1 min-w-28 rounded-md border border-line bg-surface p-1 opacity-0 shadow-sm transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+      <div
+        className={[
+          "absolute right-0 top-[calc(100%-1px)] z-20 min-w-28 rounded-md border border-line bg-surface p-1 shadow-sm transition",
+          isOpen ? "visible opacity-100" : "invisible opacity-0"
+        ].join(" ")}
+      >
         {statusOptions.map((option) => (
           <button
             key={option.value}
             type="button"
             disabled={disabled}
-            onClick={() => onChange(option.value)}
+            onClick={() => {
+              onChange(option.value);
+              setIsOpen(false);
+            }}
             className={[
               "block w-full rounded px-2 py-1.5 text-left text-sm transition",
               option.value === value ? "bg-accent/10 text-accent" : "text-primary hover:bg-background"

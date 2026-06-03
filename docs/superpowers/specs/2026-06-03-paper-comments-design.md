@@ -9,6 +9,7 @@ Add a lightweight per-paper comment field so the user can record why a paper was
 - Each paper has one editable user comment, stored as `userNote`.
 - The same comment appears on the paper list card and the paper detail page.
 - There is no save button. Editing updates local UI immediately and auto-saves in the background after a short debounce.
+- Save state is displayed once in the sticky app header, not repeated inside every paper comment box.
 - Status and favorite interactions should also feel optimistic: update visible state first, then reconcile with the server response.
 
 ## Data Model
@@ -21,7 +22,7 @@ Add `PATCH /api/papers/[id]/note` with body `{ "userNote": string }`. The route 
 
 ## UI
 
-Add a small comment textarea to each homepage paper card and a larger comment block to the detail page. The component shows lightweight save state text such as `未保存`, `保存中`, `已保存`, or `保存失败，继续编辑后会重试`; it does not show a save button.
+Add a small comment textarea to each homepage paper card and a larger comment block to the detail page. The sticky app header shows lightweight save state text such as `未保存`, `保存中`, `已保存`, or `保存失败，继续编辑后会重试`; individual comment boxes do not show save controls.
 
 ## Interaction
 

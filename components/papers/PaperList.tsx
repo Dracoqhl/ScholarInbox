@@ -7,11 +7,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
 import { PaperUserNote } from "@/components/papers/PaperUserNote";
+import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import { groupPapersByPublishedDate, sortPapersForList, type PaperSortMode } from "@/lib/papers/list-view";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
 
 export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) {
+  const { trackSync } = useSyncStatus();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<PaperStatus | "all">("all");
@@ -56,11 +58,20 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     const mutationKey = `${paper.id}:favorite`;
     const sequence = nextMutationSequence(mutationKey);
     setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: nextFavorite } : item)));
-    const response = await fetch(`/api/papers/${paper.id}/favorite`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isFavorite: nextFavorite })
-    });
+    let response: Response;
+    try {
+      response = await trackSync(fetch(`/api/papers/${paper.id}/favorite`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFavorite: nextFavorite })
+      }).then(throwIfNotOk));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite } : item)));
+      }
+      setError("收藏状态保存失败");
+      return;
+    }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
         setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, isFavorite: previousFavorite } : item)));
@@ -82,11 +93,20 @@ export function PaperList({ favoriteOnly = false }: { favoriteOnly?: boolean }) 
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
     setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: nextStatus } : item)));
-    const response = await fetch(`/api/papers/${paper.id}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus })
-    });
+    let response: Response;
+    try {
+      response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus })
+      }).then(throwIfNotOk));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus } : item)));
+      }
+      setError("阅读状态保存失败");
+      return;
+    }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
         setPapers((current) => current.map((item) => (item.id === paper.id ? { ...item, status: previousStatus } : item)));
@@ -322,4 +342,9 @@ function PaperCard({
 
 function formatScore(value: number | null): string {
   return typeof value === "number" ? value.toFixed(2) : "未评分";
+}
+
+async function throwIfNotOk(response: Response): Promise<Response> {
+  if (!response.ok) throw new Error("Paper update failed.");
+  return response;
 }

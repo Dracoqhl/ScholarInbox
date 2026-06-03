@@ -7,10 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { FavoriteButton } from "@/components/papers/FavoriteButton";
 import { KeywordTags } from "@/components/papers/KeywordTags";
 import { PaperUserNote } from "@/components/papers/PaperUserNote";
+import { useSyncStatus } from "@/components/sync/SyncStatusProvider";
 import { StatusSelect } from "@/components/ui/StatusSelect";
 import type { Paper, PaperStatus } from "@/lib/papers/types";
 
 export function PaperDetail({ id }: { id: string }) {
+  const { trackSync } = useSyncStatus();
   const [paper, setPaper] = useState<Paper | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,11 +41,19 @@ export function PaperDetail({ id }: { id: string }) {
     const mutationKey = `${paper.id}:favorite`;
     const sequence = nextMutationSequence(mutationKey);
     setPaper({ ...paper, isFavorite: nextFavorite });
-    const response = await fetch(`/api/papers/${paper.id}/favorite`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isFavorite: nextFavorite })
-    });
+    let response: Response;
+    try {
+      response = await trackSync(fetch(`/api/papers/${paper.id}/favorite`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFavorite: nextFavorite })
+      }).then(throwIfNotOk));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPaper((current) => (current ? { ...current, isFavorite: previousFavorite } : current));
+      }
+      return setError("收藏状态保存失败");
+    }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
         setPaper((current) => (current ? { ...current, isFavorite: previousFavorite } : current));
@@ -61,11 +71,19 @@ export function PaperDetail({ id }: { id: string }) {
     const mutationKey = `${paper.id}:status`;
     const sequence = nextMutationSequence(mutationKey);
     setPaper({ ...paper, status });
-    const response = await fetch(`/api/papers/${paper.id}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status })
-    });
+    let response: Response;
+    try {
+      response = await trackSync(fetch(`/api/papers/${paper.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      }).then(throwIfNotOk));
+    } catch {
+      if (isLatestMutation(mutationKey, sequence)) {
+        setPaper((current) => (current ? { ...current, status: previousStatus } : current));
+      }
+      return setError("阅读状态保存失败");
+    }
     if (!response.ok) {
       if (isLatestMutation(mutationKey, sequence)) {
         setPaper((current) => (current ? { ...current, status: previousStatus } : current));
@@ -237,4 +255,9 @@ function PdfAnalysisSection({ title, content }: { title: string; content: string
       <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{content ?? "未识别"}</p>
     </section>
   );
+}
+
+async function throwIfNotOk(response: Response): Promise<Response> {
+  if (!response.ok) throw new Error("Paper update failed.");
+  return response;
 }

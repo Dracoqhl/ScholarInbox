@@ -31,6 +31,7 @@ This file stores maintainer context for future Codex sessions. It is project mem
 - Favorite state is independent from reading status.
 - Each paper can have one user note/comment for favorite reasons, irrelevant-direction reasons, or reading reminders. This is user state and is stored with `paper_states`.
 - Paper note editing should use optimistic local updates and debounced auto-save, following `/data/prod/phd-workspace/components/notes/QuickNotesPanel.tsx`; do not add a separate save button.
+- User-write save state should be shown globally in the sticky app header, not repeated inside each paper note editor.
 - New matched papers should receive both homepage Chinese analysis and PDF-based detail analysis during crawl; the detail-page PDF action is for refresh or backfill.
 - API keys and secrets must stay server-side and must not be committed.
 - Current MVP can manually crawl arXiv date ranges, run daily scheduled arXiv crawls, filter papers against the interest profile, store and deduplicate papers in SQLite, list matched papers, update reading status, save favorites, and edit basic settings.
