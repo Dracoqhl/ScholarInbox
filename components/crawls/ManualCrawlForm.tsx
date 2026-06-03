@@ -20,7 +20,8 @@ type CrawlRunResponse = {
 type CrawlStreamEvent =
   | { type: "log"; log: CrawlLogEntry }
   | { type: "run"; run: CrawlRunResponse["run"] }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  | { type: "heartbeat"; at: string };
 
 type DatePreset = "1" | "3" | "7" | "custom";
 
@@ -120,6 +121,8 @@ export function ManualCrawlForm() {
       } else if (event.type === "error") {
         setError(event.error);
         appendClientLog("error", event.error);
+      } else if (event.type === "heartbeat") {
+        return;
       }
     };
 

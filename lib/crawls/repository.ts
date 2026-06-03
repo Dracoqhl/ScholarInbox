@@ -7,6 +7,8 @@ export function createCrawlRepository(db: SqliteDatabase) {
   return new CrawlRepository(db);
 }
 
+const STALE_CRAWL_ERROR_MESSAGE = "Crawl run became stale before finishing.";
+
 class CrawlRepository {
   constructor(private readonly db: SqliteDatabase) {}
 
@@ -94,6 +96,48 @@ class CrawlRepository {
       .prepare("SELECT * FROM crawl_runs ORDER BY started_at DESC")
       .all<CrawlRunRow>()
       .map(mapRun);
+  }
+
+  async failStaleRunningRuns(input: { olderThanMs: number; now?: () => Date }): Promise<number> {
+    const now = input.now?.() ?? new Date();
+    const cutoff = new Date(now.getTime() - input.olderThanMs).toISOString();
+    const rows = this.db
+      .prepare("SELECT * FROM crawl_runs WHERE status = 'running' AND started_at < @cutoff ORDER BY started_at ASC")
+      .all<CrawlRunRow>({ cutoff });
+
+    for (const row of rows) {
+      const run = mapRun(row);
+      const logs = [
+        ...run.logs,
+        {
+          at: now.toISOString(),
+          level: "error" as const,
+          message: STALE_CRAWL_ERROR_MESSAGE,
+          stage: "failed" as const,
+          details: {
+            cutoff,
+            startedAt: run.startedAt
+          }
+        }
+      ];
+      this.db
+        .prepare(
+          `UPDATE crawl_runs
+           SET status = 'failed',
+               error_message = @errorMessage,
+               finished_at = @finishedAt,
+               log_json = @logJson
+           WHERE id = @id`
+        )
+        .run({
+          id: run.id,
+          errorMessage: STALE_CRAWL_ERROR_MESSAGE,
+          finishedAt: now.toISOString(),
+          logJson: JSON.stringify(logs)
+        });
+    }
+
+    return rows.length;
   }
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { crawlArxivDateRange } from "@/lib/crawls/crawler";
+import { createCrawlRepository } from "@/lib/crawls/repository";
 import { getAppDatabase } from "@/lib/db/app-database";
 import { createSettingsRepository } from "@/lib/settings/repository";
 import { handleRouteError } from "@/lib/validation/http";
@@ -14,19 +15,30 @@ const bodySchema = z.object({
 });
 
 export const dynamic = "force-dynamic";
+const STALE_RUNNING_CRAWL_MS = 30 * 60 * 1000;
 
 export async function POST(request: Request) {
   try {
     const body = bodySchema.parse(await request.json());
     const db = getAppDatabase();
+    await createCrawlRepository(db).failStaleRunningRuns({ olderThanMs: STALE_RUNNING_CRAWL_MS });
     const settings = await createSettingsRepository(db).get();
     const encoder = new TextEncoder();
     const categories = body.categories?.length ? body.categories : settings.categories;
     const stream = new ReadableStream({
       start(controller) {
+        let isClosed = false;
         const send = (event: unknown) => {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          if (isClosed) return;
+          try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          } catch {
+            isClosed = true;
+          }
         };
+        const heartbeat = setInterval(() => {
+          send({ type: "heartbeat", at: new Date().toISOString() });
+        }, 15_000);
 
         void (async () => {
           try {
@@ -63,7 +75,14 @@ export async function POST(request: Request) {
               error: error instanceof Error ? error.message : "Unexpected server error"
             });
           } finally {
-            controller.close();
+            clearInterval(heartbeat);
+            if (!isClosed) {
+              try {
+                controller.close();
+              } catch {
+                isClosed = true;
+              }
+            }
           }
         })();
       }
@@ -71,7 +90,8 @@ export async function POST(request: Request) {
     return new Response(stream, {
       headers: {
         "Content-Type": "application/x-ndjson; charset=utf-8",
-        "Cache-Control": "no-store"
+        "Cache-Control": "no-store",
+        "X-Accel-Buffering": "no"
       }
     });
   } catch (error) {
