@@ -2,26 +2,38 @@ import type { PaperInput } from "@/lib/papers/types";
 import type { PaperSourceFetchOptions } from "@/lib/sources/types";
 
 const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+const ARXIV_LIST_URL = "https://arxiv.org/list";
 const ARXIV_REQUEST_DELAY_MS = 3000;
 const ARXIV_TRANSIENT_BACKOFF_MS = 30000;
 const ARXIV_RATE_LIMIT_BACKOFF_MS = 60000;
+const ARXIV_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 const ARXIV_REQUEST_TIMEOUT_MS = 75000;
 const ARXIV_MAX_RETRIES = 3;
 const ARXIV_PAGE_SIZE = 50;
+const ARXIV_ID_LIST_PAGE_SIZE = 50;
 const DEFAULT_ARXIV_MAX_RESULTS = 200;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 type FetchLike = typeof fetch;
+export type ArxivFetchStrategy = "auto" | "api" | "list";
+export type ArxivFetchEvent = {
+  level?: "info" | "error";
+  message: string;
+  details?: Record<string, unknown>;
+};
 type ArxivFetchRuntime = {
   fetcher?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   pageSize?: number;
   requestTimeoutMs?: number;
+  strategy?: ArxivFetchStrategy;
+  onEvent?: (event: ArxivFetchEvent) => void | Promise<void>;
 };
 
 let lastArxivRequestAt: number | null = null;
 let arxivRequestQueue: Promise<void> = Promise.resolve();
+let arxivCooldownUntil: number | null = null;
 
 export function buildArxivQueryUrl(options: PaperSourceFetchOptions, start = 0): URL {
   const url = new URL(ARXIV_API_URL);
@@ -37,10 +49,39 @@ export function buildArxivQueryUrl(options: PaperSourceFetchOptions, start = 0):
   return url;
 }
 
+export function buildArxivIdListQueryUrl(ids: string[]): URL {
+  const url = new URL(ARXIV_API_URL);
+  url.searchParams.set("id_list", ids.join(","));
+  url.searchParams.set("max_results", String(ids.length));
+  return url;
+}
+
+export function buildArxivListUrl(category: string): URL {
+  const safeCategory = category.replace(/[^A-Za-z0-9._-]/g, "");
+  const url = new URL(`${ARXIV_LIST_URL}/${safeCategory}/pastweek`);
+  url.searchParams.set("show", "200");
+  return url;
+}
+
 export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime = {}): Promise<PaperInput[]> {
+  if (shouldUseListFetch(options, runtime)) {
+    return fetchArxivPapersFromLists(options, runtime);
+  }
+  return fetchArxivPapersFromApiSearch(options, runtime);
+}
+
+async function fetchArxivPapersFromApiSearch(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime): Promise<PaperInput[]> {
   const maxResults = options.maxResults ?? DEFAULT_ARXIV_MAX_RESULTS;
   const pageSize = Math.max(1, Math.min(runtime.pageSize ?? ARXIV_PAGE_SIZE, maxResults));
   const papers: PaperInput[] = [];
+  await emitArxivEvent(runtime, {
+    message: "Using arXiv API submitted-date search.",
+    details: {
+      strategy: "api",
+      maxResults,
+      pageSize
+    }
+  });
 
   for (let start = 0; start < maxResults; start += pageSize) {
     const currentPageSize = Math.min(pageSize, maxResults - start);
@@ -58,9 +99,59 @@ export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime
   return dedupePapersBySourceId(papers).slice(0, maxResults);
 }
 
+async function fetchArxivPapersFromLists(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime): Promise<PaperInput[]> {
+  const maxResults = options.maxResults ?? DEFAULT_ARXIV_MAX_RESULTS;
+  await emitArxivEvent(runtime, {
+    message: "Using arXiv list-page candidate fetch.",
+    details: {
+      strategy: "list",
+      categories: options.categories,
+      dateFrom: options.dateFrom,
+      dateTo: options.dateTo,
+      maxResults
+    }
+  });
+
+  const candidateIds: string[] = [];
+  for (const category of options.categories) {
+    const response = await fetchArxivWithRetries(buildArxivListUrl(category), runtime);
+    if (!response.ok) {
+      throw new Error(`arXiv list request failed with ${response.status}`);
+    }
+    const ids = parseArxivListIds(await response.text());
+    candidateIds.push(...ids);
+    await emitArxivEvent(runtime, {
+      message: "Fetched arXiv list-page candidates.",
+      details: {
+        category,
+        candidateCount: ids.length
+      }
+    });
+  }
+
+  const uniqueIds = [...new Set(candidateIds)].slice(0, Math.max(maxResults, Math.min(200, maxResults * 2)));
+  if (!uniqueIds.length) return [];
+
+  const papers: PaperInput[] = [];
+  for (let index = 0; index < uniqueIds.length; index += ARXIV_ID_LIST_PAGE_SIZE) {
+    const ids = uniqueIds.slice(index, index + ARXIV_ID_LIST_PAGE_SIZE);
+    const response = await fetchArxivWithRetries(buildArxivIdListQueryUrl(ids), runtime);
+    if (!response.ok) {
+      throw new Error(`arXiv metadata request failed with ${response.status}`);
+    }
+    papers.push(...parseArxivFeed(await response.text()));
+  }
+
+  return dedupePapersBySourceId(papers)
+    .filter((paper) => isPaperInDateRange(paper, options))
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+    .slice(0, maxResults);
+}
+
 export function resetArxivRateLimitForTests(): void {
   lastArxivRequestAt = null;
   arxivRequestQueue = Promise.resolve();
+  arxivCooldownUntil = null;
 }
 
 export function parseArxivFeed(xml: string): PaperInput[] {
@@ -83,6 +174,13 @@ export function parseArxivFeed(xml: string): PaperInput[] {
       pdfUrl: `https://arxiv.org/pdf/${sourceId}`
     };
   });
+}
+
+export function parseArxivListIds(html: string): string[] {
+  const ids = [...html.matchAll(/href=["'](?:https?:\/\/arxiv\.org)?\/abs\/([^"'?#]+)["']/gi)]
+    .map((match) => normalizeArxivId(match[1]))
+    .filter(Boolean);
+  return [...new Set(ids)];
 }
 
 function toArxivDate(date: string, time: string): string {
@@ -133,14 +231,27 @@ function decodeXml(value: string): string {
 async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: Error | null = null;
+  assertArxivCooldownInactive(runtime);
 
   for (let attempt = 0; attempt <= ARXIV_MAX_RETRIES; attempt += 1) {
     try {
       const response = await runArxivRequestWithRateLimit(() => requestArxiv(url, runtime), runtime);
       if (response.ok || !TRANSIENT_STATUS_CODES.has(response.status) || attempt === ARXIV_MAX_RETRIES) {
+        if (response.status === 429) {
+          await activateArxivCooldown(runtime);
+        }
         return response;
       }
       lastResponse = response;
+      await emitArxivEvent(runtime, {
+        message: "arXiv request returned a transient status; backing off before retry.",
+        details: {
+          status: response.status,
+          attempt: attempt + 1,
+          maxAttempts: ARXIV_MAX_RETRIES + 1,
+          url: describeArxivUrl(url)
+        }
+      });
       await waitForRetryBackoff(response.status, attempt, runtime);
       continue;
     } catch (error) {
@@ -149,6 +260,15 @@ async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Prom
         throw nextError;
       }
       lastError = nextError;
+      await emitArxivEvent(runtime, {
+        message: "arXiv request failed transiently; backing off before retry.",
+        details: {
+          error: nextError.message,
+          attempt: attempt + 1,
+          maxAttempts: ARXIV_MAX_RETRIES + 1,
+          url: describeArxivUrl(url)
+        }
+      });
       await waitForRetryBackoff(null, attempt, runtime);
     }
   }
@@ -195,6 +315,12 @@ async function requestArxiv(url: URL, runtime: ArxivFetchRuntime): Promise<Respo
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
+    await emitArxivEvent(runtime, {
+      message: "Requesting arXiv.",
+      details: {
+        url: describeArxivUrl(url)
+      }
+    });
     return await fetcher(url, {
       signal: controller.signal,
       headers: {
@@ -222,6 +348,72 @@ async function waitForRetryBackoff(status: number | null, attempt: number, runti
   if (status === 429) {
     lastArxivRequestAt = null;
   }
+}
+
+function shouldUseListFetch(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime): boolean {
+  if (runtime.strategy === "api") return false;
+  if (runtime.strategy === "list") return true;
+  if (!options.categories.length) return false;
+  const dateFrom = parseDateInput(options.dateFrom);
+  const dateTo = parseDateInput(options.dateTo);
+  if (!dateFrom || !dateTo) return false;
+  const rangeDays = Math.floor((dateTo.getTime() - dateFrom.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (rangeDays < 1 || rangeDays > 7) return false;
+  const now = new Date((runtime.now ?? Date.now)());
+  const oldestRecentDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 8));
+  return dateTo >= oldestRecentDate;
+}
+
+function parseDateInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function isPaperInDateRange(paper: PaperInput, options: PaperSourceFetchOptions): boolean {
+  const publishedDate = paper.publishedAt.slice(0, 10);
+  return publishedDate >= options.dateFrom && publishedDate <= options.dateTo;
+}
+
+function assertArxivCooldownInactive(runtime: ArxivFetchRuntime): void {
+  const now = (runtime.now ?? Date.now)();
+  if (arxivCooldownUntil !== null && arxivCooldownUntil > now) {
+    throw new Error(`arXiv is cooling down after rate limiting until ${new Date(arxivCooldownUntil).toISOString()}.`);
+  }
+  if (arxivCooldownUntil !== null && arxivCooldownUntil <= now) {
+    arxivCooldownUntil = null;
+  }
+}
+
+async function activateArxivCooldown(runtime: ArxivFetchRuntime): Promise<void> {
+  arxivCooldownUntil = (runtime.now ?? Date.now)() + ARXIV_RATE_LIMIT_COOLDOWN_MS;
+  await emitArxivEvent(runtime, {
+    level: "error",
+    message: "arXiv rate limit cooldown activated.",
+    details: {
+      cooldownUntil: new Date(arxivCooldownUntil).toISOString(),
+      cooldownMs: ARXIV_RATE_LIMIT_COOLDOWN_MS
+    }
+  });
+}
+
+function describeArxivUrl(url: URL): string {
+  if (url.hostname === "export.arxiv.org") {
+    const start = url.searchParams.get("start");
+    const maxResults = url.searchParams.get("max_results");
+    const idList = url.searchParams.get("id_list");
+    return idList
+      ? `${url.origin}${url.pathname}?id_list=<${idList.split(",").length} ids>&max_results=${maxResults ?? ""}`
+      : `${url.origin}${url.pathname}?search_query=<omitted>&start=${start ?? ""}&max_results=${maxResults ?? ""}`;
+  }
+  return url.toString();
+}
+
+async function emitArxivEvent(runtime: ArxivFetchRuntime, event: ArxivFetchEvent): Promise<void> {
+  await runtime.onEvent?.({
+    level: event.level ?? "info",
+    message: event.message,
+    ...(event.details ? { details: event.details } : {})
+  });
 }
 
 function isRetryableArxivError(error: Error): boolean {

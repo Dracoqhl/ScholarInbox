@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildArxivQueryUrl, fetchArxivPapers, parseArxivFeed, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
+import { buildArxivQueryUrl, fetchArxivPapers, parseArxivFeed, parseArxivListIds, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
 
 describe("arXiv source", () => {
   it("parses Atom entries into normalized paper inputs", () => {
@@ -55,6 +55,46 @@ describe("arXiv source", () => {
     expect(url.searchParams.get("max_results")).toBe("50");
   });
 
+  it("parses arXiv list pages into unique arXiv ids", () => {
+    expect(parseArxivListIds(`
+      <dl>
+        <dt><span class="list-identifier"><a title="Abstract" href="/abs/2606.00001">arXiv:2606.00001</a></span></dt>
+        <dt><span class="list-identifier"><a title="Abstract" href="/abs/2606.00002v1">arXiv:2606.00002</a></span></dt>
+        <dt><span class="list-identifier"><a title="Abstract" href="https://arxiv.org/abs/2606.00001">duplicate</a></span></dt>
+      </dl>
+    `)).toEqual(["2606.00001", "2606.00002"]);
+  });
+
+  it("uses arXiv list pages before metadata lookups for recent date ranges", async () => {
+    resetArxivRateLimitForTests();
+    let now = Date.UTC(2026, 5, 4, 0, 0, 0);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(makeArxivResponse(`
+        <a title="Abstract" href="/abs/2606.00003">arXiv:2606.00003</a>
+        <a title="Abstract" href="/abs/2606.00004">arXiv:2606.00004</a>
+      `))
+      .mockResolvedValueOnce(makeArxivResponse(sampleFeed(["2606.00003", "2606.00004"])));
+
+    const papers = await fetchArxivPapers({
+      categories: ["cs.CL"],
+      dateFrom: "2026-06-03",
+      dateTo: "2026-06-04",
+      maxResults: 20
+    }, {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    });
+
+    const urls = fetcher.mock.calls.map((call) => call[0] as URL);
+    expect(urls[0].toString()).toBe("https://arxiv.org/list/cs.CL/pastweek?show=200");
+    expect(urls[1].searchParams.get("id_list")).toBe("2606.00003,2606.00004");
+    expect(urls[1].searchParams.has("search_query")).toBe(false);
+    expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00003", "2606.00004"]);
+  });
+
   it("builds an inclusive submitted-date query for one selected day", () => {
     const url = buildArxivQueryUrl({
       categories: ["cs.CL"],
@@ -87,6 +127,7 @@ describe("arXiv source", () => {
     const papers = await fetchArxivPapers({ ...makeFetchOptions(), maxResults: 5 }, {
       fetcher,
       pageSize: 2,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         now += ms;
@@ -108,6 +149,7 @@ describe("arXiv source", () => {
 
     await fetchArxivPapers(makeFetchOptions(), {
       fetcher,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
@@ -116,6 +158,7 @@ describe("arXiv source", () => {
     });
     await fetchArxivPapers(makeFetchOptions(), {
       fetcher,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
@@ -137,6 +180,7 @@ describe("arXiv source", () => {
 
     const papers = await fetchArxivPapers(makeFetchOptions(), {
       fetcher,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
@@ -160,6 +204,7 @@ describe("arXiv source", () => {
     const papers = await fetchArxivPapers(makeFetchOptions(), {
       fetcher,
       pageSize: 1,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
@@ -182,6 +227,7 @@ describe("arXiv source", () => {
 
     const papers = await fetchArxivPapers(makeFetchOptions(), {
       fetcher,
+      strategy: "api",
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
@@ -212,6 +258,7 @@ describe("arXiv source", () => {
     try {
       const pending = fetchArxivPapers(makeFetchOptions(), {
         fetcher,
+        strategy: "api",
         requestTimeoutMs: 45_000,
         sleep: async () => {}
       });
@@ -222,6 +269,31 @@ describe("arXiv source", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("activates a cooldown after repeated arXiv 429 responses", async () => {
+    resetArxivRateLimitForTests();
+    let now = 1000;
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse("rate limited", { ok: false, status: 429 }));
+
+    await expect(fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      strategy: "api",
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    })).rejects.toThrow("arXiv request failed with 429");
+
+    await expect(fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      strategy: "api",
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    })).rejects.toThrow("arXiv is cooling down after rate limiting");
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -248,8 +320,8 @@ function sampleFeed(sourceIds = ["2605.31584"]): string {
       ${sourceIds.map((sourceId) => `
         <entry>
           <id>http://arxiv.org/abs/${sourceId}v1</id>
-          <updated>2026-05-29T17:51:40Z</updated>
-          <published>2026-05-29T17:51:40Z</published>
+          <updated>2026-06-03T17:51:40Z</updated>
+          <published>2026-06-03T17:51:40Z</published>
           <title>LongTraceRL ${sourceId}</title>
           <summary>Learning long-context reasoning.</summary>
           <author><name>Ada Lovelace</name></author>

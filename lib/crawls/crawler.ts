@@ -5,7 +5,7 @@ import { createPaperRepository } from "@/lib/papers/repository";
 import { filterPapersByInterest, getInterestProfileHash } from "@/lib/filtering/interest-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";
 import { getResearchInterestProfile } from "@/lib/user-preferences/research-interest";
-import { fetchArxivPapers } from "@/lib/sources/arxiv";
+import { fetchArxivPapers, type ArxivFetchEvent } from "@/lib/sources/arxiv";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
 import { analyzePapersWithLlm, type PaperAnalysisWithSourceId } from "@/lib/paper-analysis/llm-analysis";
 import { generateAndStorePdfAnalysis } from "@/lib/pdf-analysis/service";
@@ -58,12 +58,25 @@ export async function crawlArxivDateRange(input: {
       stage: "fetching",
       progress: { current: 1, total: 7, label: "请求 arXiv" }
     });
-    const papers = await (input.fetchPapers ?? fetchArxivPapers)({
+    const fetchOptions = {
       categories: input.categories,
       dateFrom: input.dateFrom,
       dateTo: input.dateTo,
       maxResults: input.maxResults
-    });
+    };
+    const papers = input.fetchPapers
+      ? await input.fetchPapers(fetchOptions)
+      : await fetchArxivPapers(fetchOptions, {
+        onEvent: async (event: ArxivFetchEvent) => {
+          await appendLog({
+            level: event.level ?? "info",
+            message: event.message,
+            stage: "fetching",
+            progress: { current: 1, total: 7, label: "请求 arXiv" },
+            ...(event.details ? { details: event.details } : {})
+          });
+        }
+      });
     await appendLog({
       level: "info",
       message: "Fetched papers from arXiv.",
