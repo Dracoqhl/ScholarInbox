@@ -10,7 +10,6 @@ const ARXIV_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 const ARXIV_REQUEST_TIMEOUT_MS = 75000;
 const ARXIV_MAX_RETRIES = 3;
 const ARXIV_PAGE_SIZE = 50;
-const ARXIV_ID_LIST_PAGE_SIZE = 50;
 const DEFAULT_ARXIV_MAX_RESULTS = 200;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
@@ -51,16 +50,13 @@ export function buildArxivQueryUrl(options: PaperSourceFetchOptions, start = 0):
   return url;
 }
 
-export function buildArxivIdListQueryUrl(ids: string[]): URL {
-  const url = new URL(ARXIV_API_URL);
-  url.searchParams.set("id_list", ids.join(","));
-  url.searchParams.set("max_results", String(ids.length));
-  return url;
-}
-
 export function buildArxivListUrl(category: string): URL {
   const safeCategory = category.replace(/[^A-Za-z0-9._-]/g, "");
   return new URL(`${ARXIV_LIST_URL}/${safeCategory}/new`);
+}
+
+export function buildArxivAbsUrl(id: string): URL {
+  return new URL(`https://arxiv.org/abs/${normalizeArxivId(id)}`);
 }
 
 export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime = {}): Promise<PaperInput[]> {
@@ -133,13 +129,18 @@ async function fetchArxivPapersFromLists(options: PaperSourceFetchOptions, runti
   if (!uniqueIds.length) return [];
 
   const papers: PaperInput[] = [];
-  for (let index = 0; index < uniqueIds.length; index += ARXIV_ID_LIST_PAGE_SIZE) {
-    const ids = uniqueIds.slice(index, index + ARXIV_ID_LIST_PAGE_SIZE);
-    const response = await fetchArxivWithRetries(buildArxivIdListQueryUrl(ids), runtime);
+  for (const id of uniqueIds) {
+    const response = await fetchArxivWithRetries(buildArxivAbsUrl(id), runtime);
     if (!response.ok) {
-      throw new Error(`arXiv metadata request failed with ${response.status}`);
+      throw new Error(`arXiv abstract page request failed with ${response.status}`);
     }
-    papers.push(...parseArxivFeed(await response.text()));
+    papers.push(parseArxivAbsPage(id, await response.text()));
+    await emitArxivEvent(runtime, {
+      message: "Fetched arXiv abstract-page metadata.",
+      details: {
+        sourceId: id
+      }
+    });
   }
 
   return dedupePapersBySourceId(papers)
@@ -183,6 +184,31 @@ export function parseArxivListIds(html: string): string[] {
   return [...new Set(ids)];
 }
 
+export function parseArxivAbsPage(sourceId: string, html: string): PaperInput {
+  const normalizedSourceId = normalizeArxivId(sourceId);
+  const title = cleanHtmlText(extractFirstHtmlBlock(html, "h1", "title")).replace(/^Title:\s*/i, "");
+  const abstract = cleanHtmlText(extractFirstHtmlBlock(html, "blockquote", "abstract")).replace(/^Abstract:\s*/i, "");
+  const authorsBlock = extractFirstHtmlBlock(html, "div", "authors");
+  const authors = extractHtmlLinksText(authorsBlock);
+  const subjectText = cleanHtmlText(extractFirstHtmlBlock(html, "td", "subjects"));
+  const categories = [...subjectText.matchAll(/[a-z]+(?:-[a-z]+)?\.[A-Z]{2}/g)].map((match) => match[0]);
+  const publishedAt = parseArxivSubmittedDate(cleanHtmlText(extractFirstHtmlBlock(html, "div", "dateline")));
+
+  return {
+    source: "arxiv",
+    sourceId: normalizedSourceId,
+    title,
+    abstract,
+    authors,
+    categories,
+    primaryCategory: categories[0] ?? "",
+    publishedAt,
+    updatedAt: publishedAt,
+    sourceUrl: `https://arxiv.org/abs/${normalizedSourceId}`,
+    pdfUrl: `https://arxiv.org/pdf/${normalizedSourceId}`
+  };
+}
+
 function toArxivDate(date: string, time: string): string {
   return `${date.replaceAll("-", "")}${time}`;
 }
@@ -194,6 +220,31 @@ function toIsoDate(value: string): string {
 function normalizeArxivId(value: string): string {
   const lastSegment = value.split("/").filter(Boolean).at(-1) ?? value;
   return lastSegment.replace(/v\d+$/i, "");
+}
+
+function extractFirstHtmlBlock(html: string, tagName: string, className: string): string {
+  const pattern = new RegExp(`<${tagName}\\b[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i");
+  return html.match(pattern)?.[1] ?? "";
+}
+
+function extractHtmlLinksText(html: string): string[] {
+  const links = [...html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => cleanHtmlText(match[1]))
+    .filter(Boolean);
+  if (links.length) return links;
+  return cleanHtmlText(html).replace(/^Authors?:\s*/i, "").split(",").map((author) => author.trim()).filter(Boolean);
+}
+
+function cleanHtmlText(value: string): string {
+  return normalizeWhitespace(value.replace(/<[^>]+>/g, " "));
+}
+
+function parseArxivSubmittedDate(value: string): string {
+  const match = value.match(/Submitted on\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i);
+  if (!match) return new Date(0).toISOString();
+  const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(match[2].toLowerCase());
+  if (month < 0) return new Date(0).toISOString();
+  return new Date(Date.UTC(Number(match[3]), month, Number(match[1]))).toISOString();
 }
 
 function extractBlocks(xml: string, tagName: string): string[] {
@@ -224,6 +275,7 @@ function decodeXml(value: string): string {
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&amp;", "&")
+    .replaceAll("&nbsp;", " ")
     .replaceAll("&quot;", '"')
     .replaceAll("&apos;", "'");
 }

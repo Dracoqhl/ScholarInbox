@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildArxivQueryUrl, fetchArxivPapers, parseArxivFeed, parseArxivListIds, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
+import { buildArxivQueryUrl, fetchArxivPapers, parseArxivAbsPage, parseArxivFeed, parseArxivListIds, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
 
 describe("arXiv source", () => {
   it("parses Atom entries into normalized paper inputs", () => {
@@ -65,7 +65,22 @@ describe("arXiv source", () => {
     `)).toEqual(["2606.00001", "2606.00002"]);
   });
 
-  it("uses arXiv list pages before metadata lookups for recent date ranges", async () => {
+  it("parses arXiv abstract pages into normalized paper inputs", () => {
+    expect(parseArxivAbsPage("2606.00003", sampleAbsPage("2606.00003"))).toMatchObject({
+      source: "arxiv",
+      sourceId: "2606.00003",
+      title: "LongTraceRL 2606.00003",
+      abstract: "Learning long-context reasoning from search traces.",
+      authors: ["Ada Lovelace", "Alan Turing"],
+      categories: ["cs.CL", "cs.AI"],
+      primaryCategory: "cs.CL",
+      publishedAt: "2026-06-03T00:00:00.000Z",
+      sourceUrl: "https://arxiv.org/abs/2606.00003",
+      pdfUrl: "https://arxiv.org/pdf/2606.00003"
+    });
+  });
+
+  it("uses arXiv list and abstract pages without export API metadata lookups for recent date ranges", async () => {
     resetArxivRateLimitForTests();
     let now = Date.UTC(2026, 5, 4, 0, 0, 0);
     const fetcher = vi.fn()
@@ -73,7 +88,8 @@ describe("arXiv source", () => {
         <a title="Abstract" href="/abs/2606.00003">arXiv:2606.00003</a>
         <a title="Abstract" href="/abs/2606.00004">arXiv:2606.00004</a>
       `))
-      .mockResolvedValueOnce(makeArxivResponse(sampleFeed(["2606.00003", "2606.00004"])));
+      .mockResolvedValueOnce(makeArxivResponse(sampleAbsPage("2606.00003")))
+      .mockResolvedValueOnce(makeArxivResponse(sampleAbsPage("2606.00004")));
 
     const papers = await fetchArxivPapers({
       categories: ["cs.CL"],
@@ -90,8 +106,9 @@ describe("arXiv source", () => {
 
     const urls = fetcher.mock.calls.map((call) => call[0] as URL);
     expect(urls[0].toString()).toBe("https://arxiv.org/list/cs.CL/new");
-    expect(urls[1].searchParams.get("id_list")).toBe("2606.00003,2606.00004");
-    expect(urls[1].searchParams.has("search_query")).toBe(false);
+    expect(urls[1].toString()).toBe("https://arxiv.org/abs/2606.00003");
+    expect(urls[2].toString()).toBe("https://arxiv.org/abs/2606.00004");
+    expect(urls.some((url) => url.hostname === "export.arxiv.org")).toBe(false);
     expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00003", "2606.00004"]);
   });
 
@@ -345,5 +362,25 @@ function sampleFeed(sourceIds = ["2605.31584"]): string {
         </entry>
       `).join("")}
     </feed>
+  `;
+}
+
+function sampleAbsPage(sourceId: string): string {
+  return `
+    <html>
+      <body>
+        <h1 class="title mathjax"><span class="descriptor">Title:</span>LongTraceRL ${sourceId}</h1>
+        <div class="authors"><span class="descriptor">Authors:</span>
+          <a href="/search/cs?searchtype=author&amp;query=Lovelace%2C+A">Ada Lovelace</a>,
+          <a href="/search/cs?searchtype=author&amp;query=Turing%2C+A">Alan Turing</a>
+        </div>
+        <blockquote class="abstract mathjax">
+          <span class="descriptor">Abstract:</span>
+          Learning long-context reasoning from search traces.
+        </blockquote>
+        <div class="dateline">[Submitted on 3 Jun 2026]</div>
+        <td class="tablecell subjects">Computation and Language (cs.CL); Artificial Intelligence (cs.AI)</td>
+      </body>
+    </html>
   `;
 }
