@@ -89,7 +89,7 @@ describe("arXiv source", () => {
     });
 
     const urls = fetcher.mock.calls.map((call) => call[0] as URL);
-    expect(urls[0].toString()).toBe("https://arxiv.org/list/cs.CL/pastweek?show=200");
+    expect(urls[0].toString()).toBe("https://arxiv.org/list/cs.CL/new");
     expect(urls[1].searchParams.get("id_list")).toBe("2606.00003,2606.00004");
     expect(urls[1].searchParams.has("search_query")).toBe(false);
     expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00003", "2606.00004"]);

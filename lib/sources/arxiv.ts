@@ -60,9 +60,7 @@ export function buildArxivIdListQueryUrl(ids: string[]): URL {
 
 export function buildArxivListUrl(category: string): URL {
   const safeCategory = category.replace(/[^A-Za-z0-9._-]/g, "");
-  const url = new URL(`${ARXIV_LIST_URL}/${safeCategory}/pastweek`);
-  url.searchParams.set("show", "200");
-  return url;
+  return new URL(`${ARXIV_LIST_URL}/${safeCategory}/new`);
 }
 
 export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime = {}): Promise<PaperInput[]> {
