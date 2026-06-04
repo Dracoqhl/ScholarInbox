@@ -86,6 +86,12 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS arxiv_paper_cache (
+      source_id TEXT PRIMARY KEY,
+      paper_json TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at);
     CREATE INDEX IF NOT EXISTS idx_papers_source_identity ON papers(source, source_id);
     CREATE INDEX IF NOT EXISTS idx_paper_states_favorite ON paper_states(is_favorite);

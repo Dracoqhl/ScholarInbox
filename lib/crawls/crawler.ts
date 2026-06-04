@@ -6,7 +6,8 @@ import { createPaperRepository } from "@/lib/papers/repository";
 import { filterPapersByInterest, getInterestProfileHash } from "@/lib/filtering/interest-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";
 import { getResearchInterestProfile } from "@/lib/user-preferences/research-interest";
-import { fetchArxivPapers, type ArxivFetchEvent } from "@/lib/sources/arxiv";
+import { fetchArxivPapers, isArxivCooldownError, type ArxivFetchEvent } from "@/lib/sources/arxiv";
+import { createArxivCacheRepository } from "@/lib/sources/arxiv-cache";
 import type { PaperSourceFetcher } from "@/lib/sources/types";
 import { analyzePapersWithLlm, type PaperAnalysisWithSourceId } from "@/lib/paper-analysis/llm-analysis";
 import { generateAndStorePdfAnalysis } from "@/lib/pdf-analysis/service";
@@ -28,6 +29,7 @@ export async function crawlArxivDateRange(input: {
   const crawlRepository = createCrawlRepository(input.db);
   const settingsRepository = createSettingsRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
+  const arxivCacheRepository = createArxivCacheRepository(input.db);
   const run = await crawlRepository.start({
     source: "arxiv",
     categories: input.categories,
@@ -69,9 +71,17 @@ export async function crawlArxivDateRange(input: {
     const papers = input.fetchPapers
       ? await input.fetchPapers(fetchOptions)
       : await fetchArxivPapers(fetchOptions, {
-        getCooldownUntil: async () => parsePersistedCooldown(await settingsRepository.getInternalValue("arxivCooldownUntil")),
+        getLastRequestAt: async () => parsePersistedTimestamp(await settingsRepository.getInternalValue("arxivLastRequestAt")),
+        setLastRequestAt: async (value) => {
+          await settingsRepository.setInternalValue("arxivLastRequestAt", new Date(value).toISOString());
+        },
+        getCooldownUntil: async () => parsePersistedTimestamp(await settingsRepository.getInternalValue("arxivCooldownUntil")),
         setCooldownUntil: async (until) => {
           await settingsRepository.setInternalValue("arxivCooldownUntil", new Date(until).toISOString());
+        },
+        getCachedPaper: async (sourceId) => arxivCacheRepository.getPaper(sourceId),
+        setCachedPapers: async (nextPapers) => {
+          await arxivCacheRepository.setPapers(nextPapers);
         },
         onEvent: async (event: ArxivFetchEvent) => {
           await appendLog({
@@ -260,6 +270,26 @@ export async function crawlArxivDateRange(input: {
       duplicateCount: filter.cachedCount
     });
   } catch (error) {
+    if (isArxivCooldownError(error)) {
+      const coolingRun = await crawlRepository.appendLog(run.id, {
+        level: "error",
+        message: "Crawl paused for arXiv cooldown.",
+        stage: "cooling_down",
+        details: {
+          error: error.message,
+          cooldownUntil: new Date(error.until).toISOString()
+        }
+      });
+      const coolingLog = coolingRun.logs[coolingRun.logs.length - 1];
+      if (coolingLog) await input.onLog?.(coolingLog);
+      return crawlRepository.finish(run.id, {
+        status: "cooling_down",
+        fetchedCount: 0,
+        insertedCount: 0,
+        duplicateCount: 0,
+        errorMessage: error.message
+      });
+    }
     const failedRun = await crawlRepository.appendLog(run.id, {
       level: "error",
       message: "Crawl failed.",
@@ -280,7 +310,7 @@ export async function crawlArxivDateRange(input: {
   }
 }
 
-function parsePersistedCooldown(value: string | null): number | null {
+function parsePersistedTimestamp(value: string | null): number | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;

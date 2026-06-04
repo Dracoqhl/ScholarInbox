@@ -1,7 +1,7 @@
-export type CrawlStatus = "running" | "completed" | "failed";
+export type CrawlStatus = "running" | "completed" | "failed" | "cooling_down";
 
 export type CrawlLogLevel = "info" | "error";
-export type CrawlLogStage = "submitted" | "started" | "fetching" | "filtering" | "storing" | "homepage_analysis" | "pdf_analysis" | "completed" | "failed";
+export type CrawlLogStage = "submitted" | "started" | "fetching" | "filtering" | "storing" | "homepage_analysis" | "pdf_analysis" | "completed" | "failed" | "cooling_down";
 
 export type CrawlLogProgress = {
   current: number;

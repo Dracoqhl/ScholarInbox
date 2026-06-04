@@ -217,7 +217,7 @@ export function ManualCrawlForm() {
       ) : null}
       {result ? (
         <div className="grid gap-3 rounded-md border border-line bg-background p-4 text-sm sm:grid-cols-4">
-          <span>状态：{result.status}</span>
+          <span>状态：{formatRunStatus(result.status)}</span>
           <span>抓取：{result.fetchedCount}</span>
           <span>有效新增：{result.insertedCount}</span>
           <span>已校验跳过：{result.duplicateCount}</span>
@@ -304,7 +304,24 @@ function formatStage(stage: CrawlLogEntry["stage"]): string {
       return "完成";
     case "failed":
       return "失败";
+    case "cooling_down":
+      return "冷却中";
     default:
       return "等待";
+  }
+}
+
+function formatRunStatus(status: string): string {
+  switch (status) {
+    case "running":
+      return "运行中";
+    case "completed":
+      return "完成";
+    case "failed":
+      return "失败";
+    case "cooling_down":
+      return "arXiv 冷却中";
+    default:
+      return status;
   }
 }

@@ -8,6 +8,7 @@ import { getDatabase } from "../lib/db/database";
 import { ensureDatabaseSchema } from "../lib/db/schema";
 import { crawlArxivDateRange } from "../lib/crawls/crawler";
 import { createCrawlRepository } from "../lib/crawls/repository";
+import { ArxivCooldownError } from "../lib/sources/arxiv";
 import { createPaperRepository } from "../lib/papers/repository";
 import type { Paper, PaperInput } from "../lib/papers/types";
 
@@ -325,6 +326,32 @@ describe("crawl service", () => {
 
     expect(await repository.list({})).toHaveLength(2);
     expect((await repository.list({ matched: true })).map((paper) => paper.sourceId)).toEqual(["2401.00004"]);
+  });
+
+  it("records arXiv cooldown as a cooling down crawl state", async () => {
+    const db = getDatabase(databasePath);
+
+    const result = await crawlArxivDateRange({
+      db,
+      categories: ["cs.CL"],
+      dateFrom: "2024-01-01",
+      dateTo: "2024-01-01",
+      fetchPapers: async () => {
+        throw new ArxivCooldownError(Date.parse("2026-06-04T13:54:15.871Z"));
+      },
+      filterPapers: async () => [],
+      analyzePapers: async () => [],
+      analyzePaperPdf: passThroughPdfAnalysis
+    });
+
+    expect(result).toMatchObject({
+      status: "cooling_down",
+      errorMessage: "arXiv is cooling down after rate limiting until 2026-06-04T13:54:15.871Z."
+    });
+    expect(result.logs.at(-1)).toMatchObject({
+      stage: "cooling_down",
+      level: "error"
+    });
   });
 });
 

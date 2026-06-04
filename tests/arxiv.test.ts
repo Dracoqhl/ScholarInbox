@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildArxivQueryUrl, fetchArxivPapers, parseArxivAbsPage, parseArxivFeed, parseArxivListIds, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
+import { buildArxivQueryUrl, fetchArxivPapers, parseArxivAbsPage, parseArxivFeed, parseArxivListIds, parseArxivOaiFeed, resetArxivRateLimitForTests } from "../lib/sources/arxiv";
 
 describe("arXiv source", () => {
   it("parses Atom entries into normalized paper inputs", () => {
@@ -80,6 +80,48 @@ describe("arXiv source", () => {
     });
   });
 
+  it("parses OAI-PMH arXiv metadata records", () => {
+    const parsed = parseArxivOaiFeed(sampleOaiFeed(["2606.00006", "2606.00007"]));
+
+    expect(parsed.papers.map((paper) => paper.sourceId)).toEqual(["2606.00006", "2606.00007"]);
+    expect(parsed.papers[0]).toMatchObject({
+      title: "OAI LongTraceRL 2606.00006",
+      abstract: "OAI metadata for long-context reasoning.",
+      authors: ["Ada Lovelace", "Alan Turing"],
+      categories: ["cs.CL", "cs.AI"],
+      primaryCategory: "cs.CL",
+      publishedAt: "2026-06-03T00:00:00.000Z"
+    });
+    expect(parsed.resumptionToken).toBe("next-page-token");
+  });
+
+  it("uses OAI-PMH metadata as the default date-range fetch path", async () => {
+    resetArxivRateLimitForTests();
+    let now = Date.UTC(2026, 5, 4, 0, 0, 0);
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse(sampleOaiFeed(["2606.00008"], null)));
+
+    const papers = await fetchArxivPapers({
+      categories: ["cs.CL"],
+      dateFrom: "2026-06-03",
+      dateTo: "2026-06-04",
+      maxResults: 20
+    }, {
+      fetcher,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    });
+
+    const urls = fetcher.mock.calls.map((call) => call[0] as URL);
+    expect(urls[0].toString()).toContain("https://export.arxiv.org/oai2?verb=ListRecords");
+    expect(urls[0].searchParams.get("set")).toBe("cs:cs:CL");
+    expect(urls[0].searchParams.get("from")).toBe("2026-06-03");
+    expect(urls[0].searchParams.get("until")).toBe("2026-06-04");
+    expect(urls[0].searchParams.has("search_query")).toBe(false);
+    expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00008"]);
+  });
+
   it("uses arXiv list and abstract pages without export API metadata lookups for recent date ranges", async () => {
     resetArxivRateLimitForTests();
     let now = Date.UTC(2026, 5, 4, 0, 0, 0);
@@ -98,6 +140,7 @@ describe("arXiv source", () => {
       maxResults: 20
     }, {
       fetcher,
+      strategy: "list",
       now: () => now,
       sleep: async (ms) => {
         now += ms;
@@ -110,6 +153,33 @@ describe("arXiv source", () => {
     expect(urls[2].toString()).toBe("https://arxiv.org/abs/2606.00004");
     expect(urls.some((url) => url.hostname === "export.arxiv.org")).toBe(false);
     expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00003", "2606.00004"]);
+  });
+
+  it("uses cached paper metadata before requesting arXiv abstract pages", async () => {
+    resetArxivRateLimitForTests();
+    let now = Date.UTC(2026, 5, 4, 0, 0, 0);
+    const cachedPaper = makePaperInput("2606.00009");
+    const fetcher = vi.fn().mockResolvedValueOnce(makeArxivResponse(`
+      <a title="Abstract" href="/abs/2606.00009">arXiv:2606.00009</a>
+    `));
+
+    const papers = await fetchArxivPapers({
+      categories: ["cs.CL"],
+      dateFrom: "2026-06-03",
+      dateTo: "2026-06-04",
+      maxResults: 20
+    }, {
+      fetcher,
+      strategy: "list",
+      getCachedPaper: async (sourceId) => sourceId === cachedPaper.sourceId ? cachedPaper : null,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(papers.map((paper) => paper.sourceId)).toEqual(["2606.00009"]);
   });
 
   it("builds an inclusive submitted-date query for one selected day", () => {
@@ -187,6 +257,32 @@ describe("arXiv source", () => {
     expect(sleeps).toEqual([15000]);
   });
 
+  it("honors persisted arXiv request timestamps between process instances", async () => {
+    resetArxivRateLimitForTests();
+    let now = 15000;
+    let persistedLastRequestAt: number | null = 10000;
+    const sleeps: number[] = [];
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse(sampleFeed()));
+
+    await fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      strategy: "api",
+      getLastRequestAt: async () => persistedLastRequestAt,
+      setLastRequestAt: async (value) => {
+        persistedLastRequestAt = value;
+      },
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      }
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sleeps).toEqual([10000]);
+    expect(persistedLastRequestAt).toBe(25000);
+  });
+
   it("retries transient arXiv failures after conservative backoff", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
@@ -252,7 +348,7 @@ describe("arXiv source", () => {
         sleeps.push(ms);
         now += ms;
       }
-    })).rejects.toThrow("arXiv request failed with 429");
+    })).rejects.toThrow("arXiv is cooling down after rate limiting");
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(sleeps).toEqual([]);
@@ -302,7 +398,7 @@ describe("arXiv source", () => {
       sleep: async (ms) => {
         now += ms;
       }
-    })).rejects.toThrow("arXiv request failed with 429");
+    })).rejects.toThrow("arXiv is cooling down after rate limiting");
 
     await expect(fetchArxivPapers(makeFetchOptions(), {
       fetcher,
@@ -335,6 +431,22 @@ function makeFetchOptions() {
     dateFrom: "2026-05-27",
     dateTo: "2026-06-02",
     maxResults: 1
+  };
+}
+
+function makePaperInput(sourceId: string) {
+  return {
+    source: "arxiv" as const,
+    sourceId,
+    title: `Cached ${sourceId}`,
+    abstract: "Cached metadata.",
+    authors: ["Ada Lovelace"],
+    categories: ["cs.CL"],
+    primaryCategory: "cs.CL",
+    publishedAt: "2026-06-03T00:00:00.000Z",
+    updatedAt: "2026-06-03T00:00:00.000Z",
+    sourceUrl: `https://arxiv.org/abs/${sourceId}`,
+    pdfUrl: `https://arxiv.org/pdf/${sourceId}`
   };
 }
 
@@ -382,5 +494,33 @@ function sampleAbsPage(sourceId: string): string {
         <td class="tablecell subjects">Computation and Language (cs.CL); Artificial Intelligence (cs.AI)</td>
       </body>
     </html>
+  `;
+}
+
+function sampleOaiFeed(sourceIds: string[], resumptionToken: string | null = "next-page-token"): string {
+  return `
+    <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+      <ListRecords>
+        ${sourceIds.map((sourceId) => `
+          <record>
+            <metadata>
+              <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+                <id>${sourceId}</id>
+                <created>2026-06-03</created>
+                <updated>2026-06-03</updated>
+                <authors>
+                  <author><keyname>Lovelace</keyname><forenames>Ada</forenames></author>
+                  <author><keyname>Turing</keyname><forenames>Alan</forenames></author>
+                </authors>
+                <title>OAI LongTraceRL ${sourceId}</title>
+                <categories>cs.CL cs.AI</categories>
+                <abstract>OAI metadata for long-context reasoning.</abstract>
+              </arXiv>
+            </metadata>
+          </record>
+        `).join("")}
+        ${resumptionToken ? `<resumptionToken>${resumptionToken}</resumptionToken>` : ""}
+      </ListRecords>
+    </OAI-PMH>
   `;
 }

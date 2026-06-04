@@ -2,6 +2,7 @@ import type { PaperInput } from "@/lib/papers/types";
 import type { PaperSourceFetchOptions } from "@/lib/sources/types";
 
 const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+const ARXIV_OAI_URL = "https://export.arxiv.org/oai2";
 const ARXIV_LIST_URL = "https://arxiv.org/list";
 const ARXIV_REQUEST_DELAY_MS = 15000;
 const ARXIV_TRANSIENT_BACKOFF_MS = 30000;
@@ -14,7 +15,7 @@ const DEFAULT_ARXIV_MAX_RESULTS = 200;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 type FetchLike = typeof fetch;
-export type ArxivFetchStrategy = "auto" | "api" | "list";
+export type ArxivFetchStrategy = "auto" | "api" | "list" | "oai";
 export type ArxivFetchEvent = {
   level?: "info" | "error";
   message: string;
@@ -27,14 +28,33 @@ type ArxivFetchRuntime = {
   pageSize?: number;
   requestTimeoutMs?: number;
   strategy?: ArxivFetchStrategy;
+  getLastRequestAt?: () => number | null | Promise<number | null>;
+  setLastRequestAt?: (value: number) => void | Promise<void>;
   getCooldownUntil?: () => number | null | Promise<number | null>;
   setCooldownUntil?: (until: number) => void | Promise<void>;
+  getCachedPaper?: (sourceId: string) => PaperInput | null | Promise<PaperInput | null>;
+  setCachedPapers?: (papers: PaperInput[]) => void | Promise<void>;
   onEvent?: (event: ArxivFetchEvent) => void | Promise<void>;
 };
 
 let lastArxivRequestAt: number | null = null;
 let arxivRequestQueue: Promise<void> = Promise.resolve();
 let arxivCooldownUntil: number | null = null;
+
+export class ArxivCooldownError extends Error {
+  constructor(public readonly until: number) {
+    super(`arXiv is cooling down after rate limiting until ${new Date(until).toISOString()}.`);
+    this.name = "ArxivCooldownError";
+  }
+}
+
+export function isArxivCooldownError(error: unknown): error is ArxivCooldownError {
+  return error instanceof ArxivCooldownError || (
+    error instanceof Error &&
+    error.name === "ArxivCooldownError" &&
+    error.message.includes("arXiv is cooling down after rate limiting")
+  );
+}
 
 export function buildArxivQueryUrl(options: PaperSourceFetchOptions, start = 0): URL {
   const url = new URL(ARXIV_API_URL);
@@ -50,6 +70,21 @@ export function buildArxivQueryUrl(options: PaperSourceFetchOptions, start = 0):
   return url;
 }
 
+export function buildArxivOaiUrl(input: { category: string; dateFrom: string; dateTo: string; resumptionToken?: string }): URL {
+  const url = new URL(ARXIV_OAI_URL);
+  url.searchParams.set("verb", "ListRecords");
+  if (input.resumptionToken) {
+    url.searchParams.set("resumptionToken", input.resumptionToken);
+    return url;
+  }
+  url.searchParams.set("from", input.dateFrom);
+  url.searchParams.set("until", input.dateTo);
+  url.searchParams.set("metadataPrefix", "arXiv");
+  const set = toOaiSet(input.category);
+  if (set) url.searchParams.set("set", set);
+  return url;
+}
+
 export function buildArxivListUrl(category: string): URL {
   const safeCategory = category.replace(/[^A-Za-z0-9._-]/g, "");
   return new URL(`${ARXIV_LIST_URL}/${safeCategory}/new`);
@@ -60,10 +95,83 @@ export function buildArxivAbsUrl(id: string): URL {
 }
 
 export async function fetchArxivPapers(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime = {}): Promise<PaperInput[]> {
+  if (runtime.strategy === "api") {
+    return fetchArxivPapersFromApiSearch(options, runtime);
+  }
+  if (runtime.strategy === "list") {
+    return fetchArxivPapersFromLists(options, runtime);
+  }
+  if (runtime.strategy === "oai" || runtime.strategy === "auto" || !runtime.strategy) {
+    const papers = await fetchArxivPapersFromOai(options, runtime);
+    if (papers.length || !shouldUseListFetch(options, { ...runtime, strategy: "list" })) {
+      return papers;
+    }
+    await emitArxivEvent(runtime, {
+      message: "OAI-PMH returned no papers; falling back to arXiv list pages.",
+      details: {
+        strategy: "list_fallback"
+      }
+    });
+    return fetchArxivPapersFromLists(options, runtime);
+  }
   if (shouldUseListFetch(options, runtime)) {
     return fetchArxivPapersFromLists(options, runtime);
   }
   return fetchArxivPapersFromApiSearch(options, runtime);
+}
+
+async function fetchArxivPapersFromOai(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime): Promise<PaperInput[]> {
+  const maxResults = options.maxResults ?? DEFAULT_ARXIV_MAX_RESULTS;
+  const papers: PaperInput[] = [];
+  await emitArxivEvent(runtime, {
+    message: "Using arXiv OAI-PMH date-range metadata fetch.",
+    details: {
+      strategy: "oai",
+      categories: options.categories,
+      dateFrom: options.dateFrom,
+      dateTo: options.dateTo,
+      maxResults
+    }
+  });
+
+  for (const category of options.categories.length ? options.categories : ["all"]) {
+    let url: URL | null = buildArxivOaiUrl({ category, dateFrom: options.dateFrom, dateTo: options.dateTo });
+    while (url) {
+      const response = await fetchArxivWithRetries(url, runtime);
+      if (!response.ok) {
+        throw new Error(`arXiv OAI-PMH request failed with ${response.status}`);
+      }
+      const parsed = parseArxivOaiFeed(await response.text());
+      papers.push(...parsed.papers);
+      await runtime.setCachedPapers?.(parsed.papers);
+      await emitArxivEvent(runtime, {
+        message: "Fetched arXiv OAI-PMH metadata.",
+        details: {
+          category,
+          count: parsed.papers.length,
+          hasResumptionToken: Boolean(parsed.resumptionToken)
+        }
+      });
+      if (papers.length >= maxResults) {
+        await emitArxivEvent(runtime, {
+          message: "Reached requested arXiv OAI-PMH result limit.",
+          details: {
+            count: papers.length,
+            maxResults
+          }
+        });
+        break;
+      }
+      url = parsed.resumptionToken
+        ? buildArxivOaiUrl({ category, dateFrom: options.dateFrom, dateTo: options.dateTo, resumptionToken: parsed.resumptionToken })
+        : null;
+    }
+  }
+
+  return dedupePapersBySourceId(papers)
+    .filter((paper) => isPaperInDateRange(paper, options))
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+    .slice(0, maxResults);
 }
 
 async function fetchArxivPapersFromApiSearch(options: PaperSourceFetchOptions, runtime: ArxivFetchRuntime): Promise<PaperInput[]> {
@@ -129,12 +237,26 @@ async function fetchArxivPapersFromLists(options: PaperSourceFetchOptions, runti
   if (!uniqueIds.length) return [];
 
   const papers: PaperInput[] = [];
+  const fetchedPapers: PaperInput[] = [];
   for (const id of uniqueIds) {
+    const cached = await runtime.getCachedPaper?.(id);
+    if (cached) {
+      papers.push(cached);
+      await emitArxivEvent(runtime, {
+        message: "Using cached arXiv paper metadata.",
+        details: {
+          sourceId: id
+        }
+      });
+      continue;
+    }
     const response = await fetchArxivWithRetries(buildArxivAbsUrl(id), runtime);
     if (!response.ok) {
       throw new Error(`arXiv abstract page request failed with ${response.status}`);
     }
-    papers.push(parseArxivAbsPage(id, await response.text()));
+    const paper = parseArxivAbsPage(id, await response.text());
+    papers.push(paper);
+    fetchedPapers.push(paper);
     await emitArxivEvent(runtime, {
       message: "Fetched arXiv abstract-page metadata.",
       details: {
@@ -142,6 +264,7 @@ async function fetchArxivPapersFromLists(options: PaperSourceFetchOptions, runti
       }
     });
   }
+  await runtime.setCachedPapers?.(fetchedPapers);
 
   return dedupePapersBySourceId(papers)
     .filter((paper) => isPaperInDateRange(paper, options))
@@ -209,12 +332,62 @@ export function parseArxivAbsPage(sourceId: string, html: string): PaperInput {
   };
 }
 
+export function parseArxivOaiFeed(xml: string): { papers: PaperInput[]; resumptionToken: string | null } {
+  const papers = extractBlocks(xml, "record")
+    .map((record) => extractBlocks(record, "arXiv")[0] ?? "")
+    .filter(Boolean)
+    .map(parseArxivOaiRecord)
+    .filter((paper): paper is PaperInput => paper !== null);
+  const token = normalizeWhitespace(extractTag(xml, "resumptionToken"));
+  return {
+    papers,
+    resumptionToken: token || null
+  };
+}
+
+function parseArxivOaiRecord(record: string): PaperInput | null {
+  const sourceId = normalizeArxivId(extractTag(record, "id"));
+  if (!sourceId) return null;
+  const created = normalizeWhitespace(extractTag(record, "created"));
+  const updated = normalizeWhitespace(extractTag(record, "updated")) || created;
+  const categories = normalizeWhitespace(extractTag(record, "categories")).split(/\s+/).filter(Boolean);
+  return {
+    source: "arxiv",
+    sourceId,
+    title: normalizeWhitespace(extractTag(record, "title")),
+    abstract: normalizeWhitespace(extractTag(record, "abstract")),
+    authors: extractBlocks(record, "author").map(parseOaiAuthor).filter(Boolean),
+    categories,
+    primaryCategory: categories[0] ?? "",
+    publishedAt: toIsoDateOnly(created),
+    updatedAt: toIsoDateOnly(updated),
+    sourceUrl: `https://arxiv.org/abs/${sourceId}`,
+    pdfUrl: `https://arxiv.org/pdf/${sourceId}`
+  };
+}
+
 function toArxivDate(date: string, time: string): string {
   return `${date.replaceAll("-", "")}${time}`;
 }
 
+function toOaiSet(category: string): string {
+  if (category === "all") return "";
+  const normalized = category.trim();
+  const [base, subcategory] = normalized.includes(".")
+    ? normalized.split(".", 2)
+    : normalized.split(":", 2);
+  if (!subcategory) return `${base}:${base}`;
+  return `${base}:${base}:${subcategory}`;
+}
+
 function toIsoDate(value: string): string {
   return new Date(normalizeWhitespace(value)).toISOString();
+}
+
+function toIsoDateOnly(value: string): string {
+  if (!value) return new Date(0).toISOString();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00.000Z`).toISOString();
+  return toIsoDate(value);
 }
 
 function normalizeArxivId(value: string): string {
@@ -233,6 +406,12 @@ function extractHtmlLinksText(html: string): string[] {
     .filter(Boolean);
   if (links.length) return links;
   return cleanHtmlText(html).replace(/^Authors?:\s*/i, "").split(",").map((author) => author.trim()).filter(Boolean);
+}
+
+function parseOaiAuthor(author: string): string {
+  const keyname = normalizeWhitespace(extractTag(author, "keyname"));
+  const forenames = normalizeWhitespace(extractTag(author, "forenames"));
+  return [forenames, keyname].filter(Boolean).join(" ").trim();
 }
 
 function cleanHtmlText(value: string): string {
@@ -289,8 +468,8 @@ async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Prom
     try {
       const response = await runArxivRequestWithRateLimit(() => requestArxiv(url, runtime), runtime);
       if (response.status === 429) {
-        await activateArxivCooldown(runtime);
-        return response;
+        const until = await activateArxivCooldown(runtime);
+        throw new ArxivCooldownError(until);
       }
       if (response.ok || !TRANSIENT_STATUS_CODES.has(response.status) || attempt === ARXIV_MAX_RETRIES) {
         return response;
@@ -350,15 +529,18 @@ async function waitForArxivRequestSlot(runtime: ArxivFetchRuntime): Promise<void
   const now = runtime.now ?? Date.now;
   const sleep = runtime.sleep ?? defaultSleep;
   const currentTime = now();
+  const persistedLastRequestAt = await runtime.getLastRequestAt?.();
+  const referenceRequestAt = Math.max(lastArxivRequestAt ?? 0, persistedLastRequestAt ?? 0);
 
-  if (lastArxivRequestAt !== null) {
-    const waitMs = lastArxivRequestAt + ARXIV_REQUEST_DELAY_MS - currentTime;
+  if (referenceRequestAt > 0) {
+    const waitMs = referenceRequestAt + ARXIV_REQUEST_DELAY_MS - currentTime;
     if (waitMs > 0) {
       await sleep(waitMs);
     }
   }
 
   lastArxivRequestAt = now();
+  await runtime.setLastRequestAt?.(lastArxivRequestAt);
 }
 
 async function requestArxiv(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
@@ -439,14 +621,14 @@ async function assertArxivCooldownInactive(runtime: ArxivFetchRuntime): Promise<
         cooldownUntil: new Date(activeCooldownUntil).toISOString()
       }
     });
-    throw new Error(`arXiv is cooling down after rate limiting until ${new Date(activeCooldownUntil).toISOString()}.`);
+    throw new ArxivCooldownError(activeCooldownUntil);
   }
   if (arxivCooldownUntil !== null && arxivCooldownUntil <= now) {
     arxivCooldownUntil = null;
   }
 }
 
-async function activateArxivCooldown(runtime: ArxivFetchRuntime): Promise<void> {
+async function activateArxivCooldown(runtime: ArxivFetchRuntime): Promise<number> {
   arxivCooldownUntil = (runtime.now ?? Date.now)() + ARXIV_RATE_LIMIT_COOLDOWN_MS;
   await runtime.setCooldownUntil?.(arxivCooldownUntil);
   await emitArxivEvent(runtime, {
@@ -457,10 +639,16 @@ async function activateArxivCooldown(runtime: ArxivFetchRuntime): Promise<void> 
       cooldownMs: ARXIV_RATE_LIMIT_COOLDOWN_MS
     }
   });
+  return arxivCooldownUntil;
 }
 
 function describeArxivUrl(url: URL): string {
   if (url.hostname === "export.arxiv.org") {
+    if (url.pathname === "/oai2") {
+      const token = url.searchParams.get("resumptionToken");
+      if (token) return `${url.origin}${url.pathname}?verb=ListRecords&resumptionToken=<omitted>`;
+      return `${url.origin}${url.pathname}?verb=${url.searchParams.get("verb") ?? ""}&metadataPrefix=${url.searchParams.get("metadataPrefix") ?? ""}&set=${url.searchParams.get("set") ?? ""}&from=${url.searchParams.get("from") ?? ""}&until=${url.searchParams.get("until") ?? ""}`;
+    }
     const start = url.searchParams.get("start");
     const maxResults = url.searchParams.get("max_results");
     const idList = url.searchParams.get("id_list");
