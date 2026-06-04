@@ -1,6 +1,7 @@
 import type { SqliteDatabase } from "@/lib/db/database";
 import { createCrawlRepository } from "@/lib/crawls/repository";
 import type { CrawlLogEntry, CrawlRun } from "@/lib/crawls/types";
+import { createSettingsRepository } from "@/lib/settings/repository";
 import { createPaperRepository } from "@/lib/papers/repository";
 import { filterPapersByInterest, getInterestProfileHash } from "@/lib/filtering/interest-filter";
 import type { InterestFilterResult } from "@/lib/filtering/types";
@@ -25,6 +26,7 @@ export async function crawlArxivDateRange(input: {
   onLog?: (log: CrawlLogEntry) => void | Promise<void>;
 }): Promise<CrawlRun> {
   const crawlRepository = createCrawlRepository(input.db);
+  const settingsRepository = createSettingsRepository(input.db);
   const paperRepository = createPaperRepository(input.db);
   const run = await crawlRepository.start({
     source: "arxiv",
@@ -67,6 +69,10 @@ export async function crawlArxivDateRange(input: {
     const papers = input.fetchPapers
       ? await input.fetchPapers(fetchOptions)
       : await fetchArxivPapers(fetchOptions, {
+        getCooldownUntil: async () => parsePersistedCooldown(await settingsRepository.getInternalValue("arxivCooldownUntil")),
+        setCooldownUntil: async (until) => {
+          await settingsRepository.setInternalValue("arxivCooldownUntil", new Date(until).toISOString());
+        },
         onEvent: async (event: ArxivFetchEvent) => {
           await appendLog({
             level: event.level ?? "info",
@@ -272,6 +278,12 @@ export async function crawlArxivDateRange(input: {
       errorMessage: error instanceof Error ? error.message : "Unknown crawl error"
     });
   }
+}
+
+function parsePersistedCooldown(value: string | null): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 async function getFilterResults(input: {

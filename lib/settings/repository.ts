@@ -49,6 +49,22 @@ class SettingsRepository {
 
     return this.get();
   }
+
+  async getInternalValue(key: string): Promise<string | null> {
+    const row = this.db.prepare("SELECT value FROM app_settings WHERE key = @key").get<{ value: string }>({ key });
+    return row?.value ?? null;
+  }
+
+  async setInternalValue(key: string, value: string): Promise<void> {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO app_settings (key, value, updated_at)
+         VALUES (@key, @value, @updatedAt)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      )
+      .run({ key, value, updatedAt: now });
+  }
 }
 
 function parseJsonSetting<T>(value: string | undefined, fallback: T): T {

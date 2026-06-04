@@ -141,7 +141,7 @@ describe("arXiv source", () => {
     expect(urls.map((url) => url.searchParams.get("max_results"))).toEqual(["2", "2", "1"]);
   });
 
-  it("waits three seconds between arXiv API requests", async () => {
+  it("waits fifteen seconds between arXiv API requests", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
     const sleeps: number[] = [];
@@ -167,7 +167,7 @@ describe("arXiv source", () => {
     });
 
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(sleeps).toEqual([3000]);
+    expect(sleeps).toEqual([15000]);
   });
 
   it("retries transient arXiv failures after conservative backoff", async () => {
@@ -217,27 +217,29 @@ describe("arXiv source", () => {
     expect(papers).toHaveLength(1);
   });
 
-  it("backs off longer when arXiv returns a rate limit response", async () => {
+  it("stops immediately and activates cooldown when arXiv returns a rate limit response", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
+    let cooldownUntil: number | null = null;
     const sleeps: number[] = [];
-    const fetcher = vi.fn()
-      .mockResolvedValueOnce(makeArxivResponse("rate limited", { ok: false, status: 429 }))
-      .mockResolvedValueOnce(makeArxivResponse(sampleFeed()));
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse("rate limited", { ok: false, status: 429 }));
 
-    const papers = await fetchArxivPapers(makeFetchOptions(), {
+    await expect(fetchArxivPapers(makeFetchOptions(), {
       fetcher,
       strategy: "api",
+      setCooldownUntil: async (value) => {
+        cooldownUntil = value;
+      },
       now: () => now,
       sleep: async (ms) => {
         sleeps.push(ms);
         now += ms;
       }
-    });
+    })).rejects.toThrow("arXiv request failed with 429");
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(sleeps).toEqual([60000]);
-    expect(papers).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sleeps).toEqual([]);
+    expect(cooldownUntil).toBe(7201000);
   });
 
   it("aborts arXiv requests that do not return", async () => {
@@ -271,7 +273,7 @@ describe("arXiv source", () => {
     }
   });
 
-  it("activates a cooldown after repeated arXiv 429 responses", async () => {
+  it("uses active cooldown after an arXiv 429 response", async () => {
     resetArxivRateLimitForTests();
     let now = 1000;
     const fetcher = vi.fn().mockResolvedValue(makeArxivResponse("rate limited", { ok: false, status: 429 }));
@@ -293,7 +295,20 @@ describe("arXiv source", () => {
         now += ms;
       }
     })).rejects.toThrow("arXiv is cooling down after rate limiting");
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors persisted arXiv cooldown before making a request", async () => {
+    resetArxivRateLimitForTests();
+    const fetcher = vi.fn().mockResolvedValue(makeArxivResponse(sampleFeed()));
+
+    await expect(fetchArxivPapers(makeFetchOptions(), {
+      fetcher,
+      strategy: "api",
+      now: () => 1000,
+      getCooldownUntil: async () => 5000
+    })).rejects.toThrow("arXiv is cooling down after rate limiting");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 

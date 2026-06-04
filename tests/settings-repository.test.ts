@@ -45,4 +45,16 @@ describe("settings repository", () => {
       interestProfile: "只关注 agentic RL"
     });
   });
+
+  it("persists internal settings without changing user-facing settings", async () => {
+    const repository = createSettingsRepository(getDatabase(databasePath));
+
+    await repository.setInternalValue("arxivCooldownUntil", "2026-06-04T10:00:00.000Z");
+
+    await expect(repository.getInternalValue("arxivCooldownUntil")).resolves.toBe("2026-06-04T10:00:00.000Z");
+    await expect(repository.get()).resolves.toMatchObject({
+      categories: ["cs.CL", "cs.AI", "cs.LG"],
+      dailyCrawlTime: "08:00"
+    });
+  });
 });

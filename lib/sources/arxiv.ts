@@ -3,7 +3,7 @@ import type { PaperSourceFetchOptions } from "@/lib/sources/types";
 
 const ARXIV_API_URL = "https://export.arxiv.org/api/query";
 const ARXIV_LIST_URL = "https://arxiv.org/list";
-const ARXIV_REQUEST_DELAY_MS = 3000;
+const ARXIV_REQUEST_DELAY_MS = 15000;
 const ARXIV_TRANSIENT_BACKOFF_MS = 30000;
 const ARXIV_RATE_LIMIT_BACKOFF_MS = 60000;
 const ARXIV_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
@@ -28,6 +28,8 @@ type ArxivFetchRuntime = {
   pageSize?: number;
   requestTimeoutMs?: number;
   strategy?: ArxivFetchStrategy;
+  getCooldownUntil?: () => number | null | Promise<number | null>;
+  setCooldownUntil?: (until: number) => void | Promise<void>;
   onEvent?: (event: ArxivFetchEvent) => void | Promise<void>;
 };
 
@@ -231,15 +233,16 @@ function decodeXml(value: string): string {
 async function fetchArxivWithRetries(url: URL, runtime: ArxivFetchRuntime): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: Error | null = null;
-  assertArxivCooldownInactive(runtime);
+  await assertArxivCooldownInactive(runtime);
 
   for (let attempt = 0; attempt <= ARXIV_MAX_RETRIES; attempt += 1) {
     try {
       const response = await runArxivRequestWithRateLimit(() => requestArxiv(url, runtime), runtime);
+      if (response.status === 429) {
+        await activateArxivCooldown(runtime);
+        return response;
+      }
       if (response.ok || !TRANSIENT_STATUS_CODES.has(response.status) || attempt === ARXIV_MAX_RETRIES) {
-        if (response.status === 429) {
-          await activateArxivCooldown(runtime);
-        }
         return response;
       }
       lastResponse = response;
@@ -374,10 +377,19 @@ function isPaperInDateRange(paper: PaperInput, options: PaperSourceFetchOptions)
   return publishedDate >= options.dateFrom && publishedDate <= options.dateTo;
 }
 
-function assertArxivCooldownInactive(runtime: ArxivFetchRuntime): void {
+async function assertArxivCooldownInactive(runtime: ArxivFetchRuntime): Promise<void> {
   const now = (runtime.now ?? Date.now)();
-  if (arxivCooldownUntil !== null && arxivCooldownUntil > now) {
-    throw new Error(`arXiv is cooling down after rate limiting until ${new Date(arxivCooldownUntil).toISOString()}.`);
+  const persistedCooldownUntil = await runtime.getCooldownUntil?.();
+  const activeCooldownUntil = Math.max(arxivCooldownUntil ?? 0, persistedCooldownUntil ?? 0);
+  if (activeCooldownUntil > now) {
+    await emitArxivEvent(runtime, {
+      level: "error",
+      message: "arXiv rate limit cooldown is active.",
+      details: {
+        cooldownUntil: new Date(activeCooldownUntil).toISOString()
+      }
+    });
+    throw new Error(`arXiv is cooling down after rate limiting until ${new Date(activeCooldownUntil).toISOString()}.`);
   }
   if (arxivCooldownUntil !== null && arxivCooldownUntil <= now) {
     arxivCooldownUntil = null;
@@ -386,6 +398,7 @@ function assertArxivCooldownInactive(runtime: ArxivFetchRuntime): void {
 
 async function activateArxivCooldown(runtime: ArxivFetchRuntime): Promise<void> {
   arxivCooldownUntil = (runtime.now ?? Date.now)() + ARXIV_RATE_LIMIT_COOLDOWN_MS;
+  await runtime.setCooldownUntil?.(arxivCooldownUntil);
   await emitArxivEvent(runtime, {
     level: "error",
     message: "arXiv rate limit cooldown activated.",
