@@ -8,6 +8,7 @@ import { getDatabase } from "../lib/db/database";
 import { ensureDatabaseSchema } from "../lib/db/schema";
 import { createPaperRepository } from "../lib/papers/repository";
 import type { PaperInput } from "../lib/papers/types";
+import { createTopicSearchRepository } from "../lib/topic-search/repository";
 
 describe("paper repository", () => {
   let dir: string;
@@ -118,6 +119,102 @@ describe("paper repository", () => {
 
     expect(papers.map((paper) => paper.title)).toEqual(["Target"]);
     expect(papers[0].userTags.map((tag) => tag.name).sort()).toEqual(["Agent 架构", "推理后训练"]);
+  });
+
+  it("includes topic search match metadata with listed papers", async () => {
+    const db = getDatabase(databasePath);
+    const paperRepository = createPaperRepository(db);
+    const topicRepository = createTopicSearchRepository(db);
+    const profile = await topicRepository.upsertProfile({
+      slug: "opd",
+      label: "OPD",
+      publicTag: "OPD",
+      filePath: "data/search-profiles/opd.md",
+      dateFrom: "2023-01-01",
+      dateTo: "2026-06-05",
+      sources: ["semantic_scholar"],
+      profileHash: "hash-a"
+    });
+    const run = await topicRepository.startRun({
+      profileId: profile.id,
+      dateFrom: profile.dateFrom,
+      dateTo: profile.dateTo,
+      sources: ["semantic_scholar"]
+    });
+    const { paper } = await paperRepository.upsert(makePaperInput({ sourceId: "2401.00200", title: "OPD Topic Match" }));
+    await topicRepository.upsertPaperMatch({
+      paperId: paper.id,
+      profileId: profile.id,
+      runId: run.id,
+      profileSlug: "opd",
+      profileLabel: "OPD",
+      publicTag: "OPD",
+      profileScore: 0.9,
+      matchedReason: "The paper matches OPD.",
+      matchedQueries: ["OPD"],
+      discoveryChannels: ["semantic_scholar"],
+      canonicalPlatform: "arxiv",
+      canonicalUrl: "https://arxiv.org/abs/2401.00200",
+      externalIds: { arxiv: "2401.00200" },
+      dedupeKey: "arxiv:2401.00200"
+    });
+
+    const papers = await paperRepository.list({ query: "OPD Topic" });
+
+    expect(papers[0].topicMatches).toEqual([
+      expect.objectContaining({
+        profileSlug: "opd",
+        profileLabel: "OPD",
+        publicTag: "OPD",
+        profileScore: 0.9,
+        discoveryChannels: ["semantic_scholar"],
+        canonicalPlatform: "arxiv"
+      })
+    ]);
+  });
+
+  it("treats topic-matched papers as visible matched papers without overwriting the daily filter score", async () => {
+    const db = getDatabase(databasePath);
+    const paperRepository = createPaperRepository(db);
+    const topicRepository = createTopicSearchRepository(db);
+    const profile = await topicRepository.upsertProfile({
+      slug: "opd",
+      label: "OPD",
+      publicTag: "OPD",
+      filePath: "data/search-profiles/opd.md",
+      dateFrom: "2023-01-01",
+      dateTo: "2026-06-05",
+      sources: ["semantic_scholar"],
+      profileHash: "hash-a"
+    });
+    const run = await topicRepository.startRun({
+      profileId: profile.id,
+      dateFrom: profile.dateFrom,
+      dateTo: profile.dateTo,
+      sources: ["semantic_scholar"]
+    });
+    const { paper } = await paperRepository.upsert(makePaperInput({ sourceId: "2401.00201", title: "Topic Visible" }));
+    await topicRepository.upsertPaperMatch({
+      paperId: paper.id,
+      profileId: profile.id,
+      runId: run.id,
+      profileSlug: "opd",
+      profileLabel: "OPD",
+      publicTag: "OPD",
+      profileScore: 0.93,
+      matchedReason: "The paper matches OPD.",
+      matchedQueries: ["OPD"],
+      discoveryChannels: ["semantic_scholar"],
+      canonicalPlatform: "arxiv",
+      canonicalUrl: "https://arxiv.org/abs/2401.00201",
+      externalIds: { arxiv: "2401.00201" },
+      dedupeKey: "arxiv:2401.00201"
+    });
+
+    const papers = await paperRepository.list({ matched: true });
+
+    expect(papers.map((item) => item.title)).toContain("Topic Visible");
+    expect(papers.find((item) => item.title === "Topic Visible")?.filterScore).toBeNull();
   });
 
   it("persists a user note for a paper", async () => {

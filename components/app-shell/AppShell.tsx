@@ -6,6 +6,7 @@ const navItems = [
   { href: "/", label: "论文" },
   { href: "/archive", label: "归档" },
   { href: "/favorites", label: "收藏" },
+  { href: "/topic-search", label: "专题检索" },
   { href: "/crawls", label: "抓取" }
 ];
 

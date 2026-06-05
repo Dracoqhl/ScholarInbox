@@ -92,12 +92,65 @@ export function ensureDatabaseSchema(db: SqliteDatabase): void {
       fetched_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS search_profiles (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      label TEXT NOT NULL,
+      public_tag TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      date_from TEXT NOT NULL,
+      date_to TEXT NOT NULL,
+      sources_json TEXT NOT NULL,
+      profile_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS topic_search_runs (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL REFERENCES search_profiles(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+      date_from TEXT NOT NULL,
+      date_to TEXT NOT NULL,
+      sources_json TEXT NOT NULL,
+      candidate_count INTEGER NOT NULL,
+      deduped_count INTEGER NOT NULL,
+      accepted_count INTEGER NOT NULL,
+      inserted_count INTEGER NOT NULL,
+      existing_count INTEGER NOT NULL,
+      error_message TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      log_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_topic_matches (
+      paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+      profile_id TEXT NOT NULL REFERENCES search_profiles(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES topic_search_runs(id) ON DELETE CASCADE,
+      profile_slug TEXT NOT NULL,
+      profile_label TEXT NOT NULL,
+      public_tag TEXT NOT NULL,
+      profile_score REAL,
+      matched_reason TEXT NOT NULL,
+      matched_queries_json TEXT NOT NULL,
+      discovery_channels_json TEXT NOT NULL,
+      canonical_platform TEXT NOT NULL,
+      canonical_url TEXT NOT NULL,
+      external_ids_json TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL,
+      checked_at TEXT NOT NULL,
+      PRIMARY KEY (paper_id, profile_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at);
     CREATE INDEX IF NOT EXISTS idx_papers_source_identity ON papers(source, source_id);
     CREATE INDEX IF NOT EXISTS idx_paper_states_favorite ON paper_states(is_favorite);
     CREATE INDEX IF NOT EXISTS idx_paper_states_status ON paper_states(status);
     CREATE INDEX IF NOT EXISTS idx_paper_user_tags_tag_id ON paper_user_tags(tag_id);
     CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at ON crawl_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_topic_search_runs_started_at ON topic_search_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_paper_topic_matches_profile_id ON paper_topic_matches(profile_id);
   `);
   ensurePaperStateUserNoteColumn(db);
   ensurePaperStatesUseSimplifiedStatuses(db);

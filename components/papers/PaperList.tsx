@@ -286,8 +286,7 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
         </div>
       </div>
 
-      {listMode === "archive" ? (
-        <div className="grid gap-3 rounded-md border border-line bg-surface p-4 md:grid-cols-4">
+      <div className="grid gap-3 rounded-md border border-line bg-surface p-4 md:grid-cols-4">
           <label className="space-y-1 text-xs font-medium text-muted">
             自定义标签
             <select
@@ -355,8 +354,7 @@ export function PaperList({ mode = "inbox", favoriteOnly = false }: { mode?: Pap
               })}
             </div>
           ) : null}
-        </div>
-      ) : null}
+      </div>
 
       {error ? <p className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p> : null}
 
@@ -446,10 +444,20 @@ function PaperCard({
             <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent">
               相关分数 {formatScore(paper.filterScore)}
             </span>
+            {paper.topicMatches[0] ? (
+              <span className="rounded-md border border-line bg-background px-2 py-0.5 font-medium text-primary">
+                专题 {paper.topicMatches[0].publicTag} · 分数 {formatScore(paper.topicMatches[0].profileScore)}
+              </span>
+            ) : null}
           </div>
           <Link href={`/papers/${paper.id}`} className="mt-2 block text-base font-semibold leading-6 hover:text-accent">
             {paper.title}
           </Link>
+          {paper.topicMatches[0] ? (
+            <p className="mt-2 text-xs leading-5 text-muted">
+              {formatTopicSummary(paper)}
+            </p>
+          ) : null}
           <div className="mt-2">
             <KeywordTags tags={paper.keywordTags} />
           </div>
@@ -541,6 +549,46 @@ function PaperCard({
 
 function formatScore(value: number | null): string {
   return typeof value === "number" ? value.toFixed(2) : "未评分";
+}
+
+function formatTopicSummary(paper: Paper): string {
+  const match = paper.topicMatches[0];
+  if (!match) return "";
+  return [
+    `专题 ${match.publicTag}`,
+    `检索: ${match.discoveryChannels.map(formatDiscoveryChannel).join(" + ")}`,
+    `收录: ${formatCanonicalPlatform(match.canonicalPlatform)}`
+  ].join(" · ");
+}
+
+function formatDiscoveryChannel(value: string): string {
+  switch (value) {
+    case "arxiv_search":
+      return "arXiv";
+    case "semantic_scholar":
+      return "Semantic Scholar";
+    case "openreview":
+      return "OpenReview";
+    default:
+      return value;
+  }
+}
+
+function formatCanonicalPlatform(value: string): string {
+  switch (value) {
+    case "arxiv":
+      return "arXiv";
+    case "openreview":
+      return "OpenReview";
+    case "doi":
+      return "DOI";
+    case "acl_anthology":
+      return "ACL Anthology";
+    case "publisher":
+      return "Publisher";
+    default:
+      return "未知";
+  }
 }
 
 async function throwIfNotOk(response: Response): Promise<Response> {

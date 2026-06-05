@@ -1,3 +1,5 @@
+import type { PaperTopicMatch } from "@/lib/topic-search/types";
+
 export type PaperStatus = "new" | "skipped" | "archived" | "irrelevant";
 export type PaperFilterMethod = "llm" | "prefilter";
 
@@ -56,6 +58,7 @@ export type Paper = PaperInput & {
   pdfAnalysisError: string | null;
   keywordTags: string[];
   userTags: UserTag[];
+  topicMatches: PaperTopicMatch[];
   githubUrls: string[];
   createdAt: string;
   updatedRecordAt: string;
@@ -160,4 +163,5 @@ export type PaperRow = {
   is_favorite: number | null;
   user_note: string | null;
   user_tags_json: string | null;
+  topic_matches_json: string | null;
 };

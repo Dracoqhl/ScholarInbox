@@ -207,6 +207,26 @@ export function PaperDetail({ id }: { id: string }) {
           <div className="mt-3">
             <KeywordTags tags={paper.keywordTags} />
           </div>
+          {paper.topicMatches.length ? (
+            <div className="mt-4 space-y-2 rounded-md border border-line bg-background p-4 text-sm">
+              <h3 className="text-sm font-semibold">专题来源</h3>
+              <div className="space-y-3">
+                {paper.topicMatches.map((match) => (
+                  <div key={`${match.profileId}-${match.runId}`} className="space-y-1 text-sm leading-6">
+                    <p>
+                      <span className="font-medium text-primary">{match.publicTag}</span>
+                      <span className="text-muted"> · 专题分数 {formatScore(match.profileScore)}</span>
+                    </p>
+                    <p className="text-muted">
+                      检索渠道：{match.discoveryChannels.map(formatDiscoveryChannel).join(" + ")} · 收录平台：{formatCanonicalPlatform(match.canonicalPlatform)}
+                    </p>
+                    {match.matchedQueries.length ? <p className="text-muted">命中查询：{match.matchedQueries.join(", ")}</p> : null}
+                    <p className="text-primary/85">{match.matchedReason}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
           <StatusSelect value={paper.isFavorite ? "favorite" : paper.status} onChange={(next) => void patchStatusAction(next)} />
@@ -324,6 +344,40 @@ function PdfAnalysisSection({ title, content }: { title: string; content: string
       <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-primary/90">{content ?? "未识别"}</p>
     </section>
   );
+}
+
+function formatScore(value: number | null): string {
+  return typeof value === "number" ? value.toFixed(2) : "未评分";
+}
+
+function formatDiscoveryChannel(value: string): string {
+  switch (value) {
+    case "arxiv_search":
+      return "arXiv";
+    case "semantic_scholar":
+      return "Semantic Scholar";
+    case "openreview":
+      return "OpenReview";
+    default:
+      return value;
+  }
+}
+
+function formatCanonicalPlatform(value: string): string {
+  switch (value) {
+    case "arxiv":
+      return "arXiv";
+    case "openreview":
+      return "OpenReview";
+    case "doi":
+      return "DOI";
+    case "acl_anthology":
+      return "ACL Anthology";
+    case "publisher":
+      return "Publisher";
+    default:
+      return "未知";
+  }
 }
 
 async function throwIfNotOk(response: Response): Promise<Response> {

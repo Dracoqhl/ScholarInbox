@@ -110,7 +110,7 @@ class PaperRepository {
     }
 
     if (filters.matched !== undefined) {
-      where.push("papers.filter_matched = @matched");
+      where.push(toMatchedWhereClause(filters.matched));
       params.matched = filters.matched ? 1 : 0;
     }
 
@@ -136,7 +136,7 @@ class PaperRepository {
     }
 
     if (filters.matched !== undefined) {
-      where.push("papers.filter_matched = @matched");
+      where.push(toMatchedWhereClause(filters.matched));
       params.matched = filters.matched ? 1 : 0;
     }
 
@@ -387,7 +387,32 @@ function baseSelect(whereClause: string): string {
                WHERE paper_user_tags.paper_id = papers.id
                ORDER BY user_tags.name COLLATE NOCASE ASC
              )
-           ), '[]') AS user_tags_json
+           ), '[]') AS user_tags_json,
+           COALESCE((
+             SELECT '[' || group_concat(match_json) || ']'
+             FROM (
+               SELECT json_object(
+                 'paperId', paper_topic_matches.paper_id,
+                 'profileId', paper_topic_matches.profile_id,
+                 'runId', paper_topic_matches.run_id,
+                 'profileSlug', paper_topic_matches.profile_slug,
+                 'profileLabel', paper_topic_matches.profile_label,
+                 'publicTag', paper_topic_matches.public_tag,
+                 'profileScore', paper_topic_matches.profile_score,
+                 'matchedReason', paper_topic_matches.matched_reason,
+                 'matchedQueries', json(paper_topic_matches.matched_queries_json),
+                 'discoveryChannels', json(paper_topic_matches.discovery_channels_json),
+                 'canonicalPlatform', paper_topic_matches.canonical_platform,
+                 'canonicalUrl', paper_topic_matches.canonical_url,
+                 'externalIds', json(paper_topic_matches.external_ids_json),
+                 'dedupeKey', paper_topic_matches.dedupe_key,
+                 'checkedAt', paper_topic_matches.checked_at
+               ) AS match_json
+               FROM paper_topic_matches
+               WHERE paper_topic_matches.paper_id = papers.id
+               ORDER BY paper_topic_matches.profile_label COLLATE NOCASE ASC
+             )
+           ), '[]') AS topic_matches_json
     FROM papers
     JOIN paper_states ON paper_states.paper_id = papers.id
     ${whereClause}
@@ -400,6 +425,14 @@ function orderByClause(filters: PaperListFilters): string {
   }
 
   return " ORDER BY papers.published_at DESC, papers.created_at DESC";
+}
+
+function toMatchedWhereClause(matched: boolean): string {
+  const topicMatchedClause = "EXISTS (SELECT 1 FROM paper_topic_matches WHERE paper_topic_matches.paper_id = papers.id)";
+  if (matched) {
+    return `(papers.filter_matched = @matched OR ${topicMatchedClause})`;
+  }
+  return `(papers.filter_matched = @matched AND NOT ${topicMatchedClause})`;
 }
 
 function toPaperParams(input: PaperInput & { id: string; createdAt?: string; updatedRecordAt: string }) {
@@ -466,6 +499,7 @@ function mapPaper(row: PaperRow): Paper {
     pdfAnalysisError: row.pdf_analysis_error,
     keywordTags: parseKeywordTags(row.keyword_tags_json),
     userTags: parseUserTags(row.user_tags_json),
+    topicMatches: parseTopicMatches(row.topic_matches_json),
     githubUrls: extractGithubUrls(row.abstract),
     createdAt: row.created_at,
     updatedRecordAt: row.updated_record_at
@@ -524,6 +558,43 @@ function parseUserTags(value: string | null): UserTag[] {
   } catch {
     return [];
   }
+}
+
+function parseTopicMatches(value: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isPaperTopicMatch);
+  } catch {
+    return [];
+  }
+}
+
+function isPaperTopicMatch(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.paperId === "string" &&
+    typeof candidate.profileId === "string" &&
+    typeof candidate.runId === "string" &&
+    typeof candidate.profileSlug === "string" &&
+    typeof candidate.profileLabel === "string" &&
+    typeof candidate.publicTag === "string" &&
+    (candidate.profileScore === null || typeof candidate.profileScore === "number") &&
+    typeof candidate.matchedReason === "string" &&
+    Array.isArray(candidate.matchedQueries) &&
+    candidate.matchedQueries.every((item) => typeof item === "string") &&
+    Array.isArray(candidate.discoveryChannels) &&
+    candidate.discoveryChannels.every((item) => typeof item === "string") &&
+    typeof candidate.canonicalPlatform === "string" &&
+    typeof candidate.canonicalUrl === "string" &&
+    candidate.externalIds !== null &&
+    typeof candidate.externalIds === "object" &&
+    !Array.isArray(candidate.externalIds) &&
+    typeof candidate.dedupeKey === "string" &&
+    typeof candidate.checkedAt === "string"
+  );
 }
 
 function isUserTag(value: unknown): value is UserTag {
