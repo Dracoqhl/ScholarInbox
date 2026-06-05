@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from "path";
 
 let database: SqliteDatabase | null = null;
 let databasePath: string | null = null;
+const SQLITE_QUERY_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 export class SqliteDatabase {
   constructor(readonly path: string) {
@@ -53,7 +54,8 @@ export class SqliteStatement {
   all<T>(params?: Record<string, unknown> | unknown[]): T[] {
     const sql = interpolateSql(this.sql, params);
     const output = execFileSync("sqlite3", ["-cmd", ".timeout 5000", "-json", this.path, sql], {
-      encoding: "utf8"
+      encoding: "utf8",
+      maxBuffer: SQLITE_QUERY_MAX_BUFFER_BYTES
     }).trim();
     return output ? (JSON.parse(output) as T[]) : [];
   }

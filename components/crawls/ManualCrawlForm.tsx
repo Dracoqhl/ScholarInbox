@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Clipboard } from "lucide-react";
 
 import { getDefaultManualCrawlDateRange, getManualCrawlDateRangeForDays } from "@/lib/crawls/date-range";
@@ -15,6 +15,9 @@ type CrawlRunResponse = {
     errorMessage: string | null;
     logs: CrawlLogEntry[];
   };
+};
+type CrawlRunsResponse = {
+  runs: CrawlRunResponse["run"][];
 };
 
 type CrawlStreamEvent =
@@ -37,6 +40,23 @@ export function ManualCrawlForm() {
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState<CrawlLogEntry[]>([]);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLatestRun() {
+      const response = await fetch("/api/crawls?limit=1").catch(() => null);
+      if (!response?.ok) return;
+      const data = (await response.json()) as CrawlRunsResponse;
+      const latestRun = data.runs[0];
+      if (cancelled || !latestRun) return;
+      setResult(latestRun);
+      setLogs(latestRun.logs);
+    }
+    void loadLatestRun();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function applyPreset(days: 1 | 3 | 7) {
     const range = getManualCrawlDateRangeForDays(days);

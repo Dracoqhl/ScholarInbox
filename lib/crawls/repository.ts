@@ -91,10 +91,14 @@ class CrawlRepository {
     return row ? mapRun(row) : null;
   }
 
-  async list(): Promise<CrawlRun[]> {
+  async list(input: { limit?: number } = {}): Promise<CrawlRun[]> {
+    const limit = normalizeLimit(input.limit);
+    const sql = limit
+      ? "SELECT * FROM crawl_runs ORDER BY started_at DESC LIMIT @limit"
+      : "SELECT * FROM crawl_runs ORDER BY started_at DESC";
     return this.db
-      .prepare("SELECT * FROM crawl_runs ORDER BY started_at DESC")
-      .all<CrawlRunRow>()
+      .prepare(sql)
+      .all<CrawlRunRow>(limit ? { limit } : undefined)
       .map(mapRun);
   }
 
@@ -139,6 +143,12 @@ class CrawlRepository {
 
     return rows.length;
   }
+}
+
+function normalizeLimit(value: number | undefined): number | null {
+  if (value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+  return Math.max(1, Math.min(100, Math.trunc(value)));
 }
 
 function toRunParams(run: CrawlRun) {
